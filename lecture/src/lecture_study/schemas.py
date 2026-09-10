@@ -12,6 +12,7 @@ class Request(Strict):
     ownerSub: str = Field(min_length=1, max_length=128)
     taskToken: str = Field(min_length=1, max_length=4096)
     phase: Literal["prepare", "analyze"] = "analyze"
+    attempt: int = Field(default=0, ge=0, le=999_999_999)
 
     @property
     def expected_status(self):

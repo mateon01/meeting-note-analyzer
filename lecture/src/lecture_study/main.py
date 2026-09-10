@@ -9,6 +9,7 @@ from bedrock_agentcore.runtime import BedrockAgentCoreApp
 from botocore.exceptions import ClientError
 
 from .pipeline import analyze
+from .model import failure_code
 from .schemas import Request
 from .store import Store
 from .video import prepare_video
@@ -17,6 +18,11 @@ from .search import gateway_check
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 app = BedrockAgentCoreApp()
+
+
+def claim_id(request: Request) -> str:
+    # Fixed-width attempt numbers preserve ordering in DynamoDB string comparisons.
+    return f"{request.runId}:{request.attempt:010d}"
 
 
 def run(request: Request, store: Store, task_id: int):
@@ -49,8 +55,20 @@ def run(request: Request, store: Store, task_id: int):
         sfn.send_task_success(taskToken=request.taskToken, output=json.dumps(result))
     except Exception as exc:
         log.exception("lecture run failed lecture=%s", request.lectureId)
+        error = failure_code(exc)
+        if error == "LectureTransient":
+            try:
+                # Only a newer Step Functions attempt may resume this phase; earlier attempts remain duplicates.
+                store.table.update_item(Key=store.key, UpdateExpression="SET #claim = :retry",
+                    ConditionExpression="runId = :run AND #status = :active AND #claim = :claim",
+                    ExpressionAttributeNames={"#status": "status", "#claim": "prepareClaim" if request.phase == "prepare" else "analysisClaim"},
+                    ExpressionAttributeValues={":run": request.runId, ":active": request.expected_status, ":claim": claim_id(request), ":retry": "retry:" + claim_id(request)})
+            except Exception:
+                # Never report a retryable failure if the next attempt cannot acquire the phase.
+                log.exception("unable to prepare lecture retry lecture=%s", request.lectureId)
+                error = "LectureAnalysisFailed"
         try:
-            sfn.send_task_failure(taskToken=request.taskToken, error="LectureAnalysisFailed", cause=str(exc)[:2000])
+            sfn.send_task_failure(taskToken=request.taskToken, error=error, cause=str(exc)[:2000])
         except Exception:
             log.warning("lecture task token already expired")
     finally:
@@ -72,9 +90,10 @@ def invoke(payload: dict, context=None):
     store.record()
     claim = "prepareClaim" if request.phase == "prepare" else "analysisClaim"
     try:
-        store.table.update_item(Key=store.key, UpdateExpression="SET #claim = :run",
-            ConditionExpression="runId = :run AND #status = :active AND attribute_not_exists(#claim)",
-            ExpressionAttributeNames={"#status": "status", "#claim": claim}, ExpressionAttributeValues={":run": request.runId, ":active": request.expected_status})
+        store.table.update_item(Key=store.key, UpdateExpression="SET #claim = :claim",
+            ConditionExpression="runId = :run AND #status = :active AND (attribute_not_exists(#claim) OR (begins_with(#claim, :retryPrefix) AND #claim < :retry))",
+            ExpressionAttributeNames={"#status": "status", "#claim": claim},
+            ExpressionAttributeValues={":run": request.runId, ":active": request.expected_status, ":claim": claim_id(request), ":retryPrefix": f"retry:{request.runId}:", ":retry": "retry:" + claim_id(request)})
     except ClientError as exc:
         if exc.response["Error"]["Code"] == "ConditionalCheckFailedException":
             return {"status": "accepted", "duplicate": True}

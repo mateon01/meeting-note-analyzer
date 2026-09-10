@@ -99,15 +99,18 @@ export class LectureStack extends Stack {
       payload: sfn.TaskInput.fromObject({ op: "transcribe", ...fields, taskToken: "{% $states.context.Task.Token %}" }), assign: { stt: "{% $states.result %}" }, taskTimeout: sfn.Timeout.duration(Duration.seconds(CONSTRAINTS.sttQueueTtlSec + CONSTRAINTS.sttInvocationTimeoutSec + 900)),
     });
     const prepare = tasks.LambdaInvoke.jsonata(this, "PrepareVideo", { lambdaFunction: processor, integrationPattern: sfn.IntegrationPattern.WAIT_FOR_TASK_TOKEN,
-      payload: sfn.TaskInput.fromObject({ op: "prepare", ...fields, taskToken: "{% $states.context.Task.Token %}" }),
+      payload: sfn.TaskInput.fromObject({ op: "prepare", ...fields, taskToken: "{% $states.context.Task.Token %}", attempt: "{% $states.context.State.RetryCount %}" }),
       taskTimeout: sfn.Timeout.duration(Duration.hours(2)), heartbeatTimeout: sfn.Timeout.duration(Duration.minutes(10)),
     });
     transcribe.addRetry({ errors: ["SttTransient"], interval: Duration.seconds(90), maxAttempts: 1 });
     const normalize = tasks.LambdaInvoke.jsonata(this, "Normalize", { lambdaFunction: processor, payload: sfn.TaskInput.fromObject({ op: "normalize", ...fields, stt: "{% $stt %}" }) });
     const analyze = tasks.LambdaInvoke.jsonata(this, "AnalyzeSlides", { lambdaFunction: processor, integrationPattern: sfn.IntegrationPattern.WAIT_FOR_TASK_TOKEN,
-      payload: sfn.TaskInput.fromObject({ op: "analyze", ...fields, taskToken: "{% $states.context.Task.Token %}" }), assign: { result: "{% $states.result %}" },
+      payload: sfn.TaskInput.fromObject({ op: "analyze", ...fields, taskToken: "{% $states.context.Task.Token %}", attempt: "{% $states.context.State.RetryCount %}" }), assign: { result: "{% $states.result %}" },
       taskTimeout: sfn.Timeout.duration(Duration.hours(6)), heartbeatTimeout: sfn.Timeout.duration(Duration.minutes(10)),
     });
+    // Bedrock outages longer than the runtime's own backoff (~1.5 min) come back as LectureTransient: run the step
+    // again after 3 and 6 minutes. Completed scenes and pages are cached, so a retried step resumes where it stopped.
+    for (const step of [prepare, analyze]) step.addRetry({ errors: ["LectureTransient"], interval: Duration.minutes(3), backoffRate: 2, maxAttempts: 2 });
     const complete = tasks.LambdaInvoke.jsonata(this, "CompleteLecture", { lambdaFunction: completeFn, payload: sfn.TaskInput.fromObject({ op: "complete", ...fields, result: "{% $result %}" }) });
     const failed = tasks.LambdaInvoke.jsonata(this, "MarkFailed", { lambdaFunction: processor, payload: sfn.TaskInput.fromObject({ op: "failed", ...fields, error: "{% $states.input.error %}" }) });
     failed.next(sfn.Fail.jsonata(this, "LectureFailed"));

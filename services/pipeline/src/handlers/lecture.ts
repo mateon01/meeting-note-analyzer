@@ -7,7 +7,7 @@ import { handler as startStt } from "./start-transcription.js";
 import { normalize } from "./normalize-transcript.js";
 import { parseS3Uri } from "../lib/s3-uri.js";
 
-interface Input { op: "register" | "prepare" | "transcribe" | "normalize" | "analyze" | "complete" | "failed"; lectureId: string; runId: string; taskToken?: string; stt?: { skipped?: boolean; silent?: boolean; outputLocation?: string }; result?: { documentKey: string; markdownKey: string; flashcardsKey: string; researchFailures: number; pageCount: number }; error?: unknown }
+interface Input { op: "register" | "prepare" | "transcribe" | "normalize" | "analyze" | "complete" | "failed"; lectureId: string; runId: string; taskToken?: string; attempt?: number; stt?: { skipped?: boolean; silent?: boolean; outputLocation?: string }; result?: { documentKey: string; markdownKey: string; flashcardsKey: string; researchFailures: number; pageCount: number }; error?: unknown }
 const agent = new BedrockAgentCoreClient({});
 const sfn = new SFNClient({});
 
@@ -62,9 +62,9 @@ export const handler = async (input: Input) => {
       const phase = input.op;
       if (!input.taskToken || rec.status !== (phase === "prepare" ? "PREPARING" : "ANALYZING")) throw new Error("Lecture task is not ready");
       const response = await agent.send(new InvokeAgentRuntimeCommand({
-        agentRuntimeArn: requireEnv("LECTURE_RUNTIME_ARN"), qualifier: "DEFAULT", runtimeSessionId: `lecture-${input.lectureId}-${input.runId}-${phase}`,
+        agentRuntimeArn: requireEnv("LECTURE_RUNTIME_ARN"), qualifier: "DEFAULT", runtimeSessionId: `lecture-${input.lectureId}-${input.runId}-${phase}${input.attempt ? `-r${input.attempt}` : ""}`,
         contentType: "application/json", accept: "application/json",
-        payload: Buffer.from(JSON.stringify({ lectureId: input.lectureId, runId: input.runId, ownerSub: rec.owner, taskToken: input.taskToken, phase })),
+        payload: Buffer.from(JSON.stringify({ lectureId: input.lectureId, runId: input.runId, ownerSub: rec.owner, taskToken: input.taskToken, phase, attempt: input.attempt ?? 0 })),
       }));
       const accepted = JSON.parse(await response.response!.transformToString());
       if (accepted.status !== "accepted") throw new Error("Lecture runtime did not accept the task");

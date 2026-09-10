@@ -82,9 +82,19 @@ New installations use `sttMaxInstances=4`. Existing `deploy.local.json` values t
 
 Meeting and lecture transcription requests can wait in the shared SageMaker queue for up to six hours, followed by up to one hour of processing. The workflow allows another 15 minutes for the callback. Both workflows have a 24-hour overall limit. A longer queue wait does not increase the four-hour input-duration limit or guarantee that a request will finish. These settings follow the [SageMaker async request limits](https://docs.aws.amazon.com/sagemaker/latest/APIReference/API_runtime_InvokeEndpointAsync.html).
 
-`lectureMaxModelCalls` and `lectureMaxSearchCalls` set the per-attempt limits for lecture model and search calls. Their defaults are 800 and 240. `stageBudgetUsd` sets the meeting SDK budget per analysis stage; its default is 50. The SDK budget is an estimate, not an AWS billing cap. These counters are not monthly budgets or dollar limits, and explicit retries start another attempt. Long videos and many slide sections cost more than short examples. Check AWS billing and service metrics after testing with representative files.
+`lectureMaxModelCalls` and `lectureMaxSearchCalls` set the per-attempt limits for lecture model and search calls. Their defaults are 800 and 240. `stageBudgetUsd` sets the meeting SDK budget per analysis stage; its default is 50. The SDK budget is an estimate, not an AWS billing cap. These counters are not monthly budgets or dollar limits. Automatic phase retries and manual retries start new bounded attempts, so the total calls for one lecture can exceed these limits. Long videos and many slide sections cost more than short examples. Check AWS billing and service metrics after testing with representative files.
 
 See current [SageMaker pricing](https://aws.amazon.com/sagemaker/ai/pricing/), [Bedrock pricing](https://aws.amazon.com/bedrock/pricing/), and [AgentCore pricing](https://aws.amazon.com/bedrock/agentcore/pricing/). Global inference profiles can route requests to other regions; select an appropriate profile if region boundaries matter for your data.
+
+## Lecture retries
+
+The lecture runtime retries temporary Bedrock failures, including throttling, service unavailability, model timeouts, and connection errors. A model request gets up to eight HTTP attempts, separated by waits of 1, 2, 4, 8, 16, 32, and 32 seconds. These waits total 95 seconds; time spent making the requests is additional. Each HTTP attempt counts toward the runtime's model-call limit.
+
+If a transient error persists, the runtime sends `LectureTransient` to Step Functions. The failed `PrepareVideo` or `AnalyzeSlides` step can run twice more, after waits of three and six minutes. Each retry uses a new runtime session and callback token. Phase claims track the retry number so the new attempt can start while duplicate or older deliveries remain blocked.
+
+Cached scene and page analysis is reused. Work that did not produce a cached result runs again. A retry of slide analysis does not restart transcription. Invalid input, permission errors, exhausted call limits, and output that still fails validation do not receive these automatic phase retries. Paper-search failures remain separate from study generation.
+
+When retries are exhausted, the lecture is marked failed and the normal failure alarm applies. Inspect the execution history and runtime log before requesting another attempt. The 24-hour workflow limit still applies.
 
 ## Storage lifecycle
 

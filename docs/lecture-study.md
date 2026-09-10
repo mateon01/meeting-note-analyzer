@@ -46,6 +46,8 @@ Add `--search` to perform one fixed test query. Use your own stack prefix and re
 
 ## Processing and costs
 
-Lectures share the SageMaker transcription endpoint with meetings. An endpoint scaled to zero takes time to start. Model and search limits apply to an analysis attempt, and a manual retry starts another bounded attempt. Long videos, many visible sections, and repeated retries increase cost.
+Lectures share the SageMaker transcription endpoint with meetings. An endpoint scaled to zero takes time to start. Temporary model-service failures are retried automatically, with cached scene and page analysis reused on the next attempt. Invalid inputs and permission errors still require attention. See [lecture retries](operations.md#lecture-retries) for the waiting intervals and failure handling.
+
+Model and search limits apply to one runtime attempt. Automatic phase retries and manual retries start new bounded attempts, so a lecture's total calls can exceed a single attempt's limit. Long videos, many visible sections, and repeated retries increase cost.
 
 See [deployment](deployment.md) for setup and [operations](operations.md) for monitoring and resource management.

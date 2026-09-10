@@ -19,6 +19,15 @@ it("dispatches video preparation as its own async runtime phase", async () => {
   const request = mocks.runtime.mock.calls[0]![0].input;
   expect(JSON.parse(request.payload.toString())).toMatchObject({ phase: "prepare", ownerSub: "owner" });
   expect(request.runtimeSessionId).toMatch(/-prepare$/);
+  expect(JSON.parse(request.payload.toString()).attempt).toBe(0);
+});
+it.each(["prepare", "analyze"] as const)("passes the retry count and a new callback token to a fresh %s session", async (phase) => {
+  mocks.get.mockResolvedValue({ lectureId: "lecture", owner: "owner", runId: "run", status: phase === "prepare" ? "PREPARING" : "ANALYZING" });
+  mocks.runtime.mockResolvedValue({ response: { transformToString: async () => JSON.stringify({ status: "accepted" }) } });
+  await handler({ op: phase, lectureId: "lecture", runId: "run", taskToken: "retry-token", attempt: 2 });
+  const request = mocks.runtime.mock.calls[0]![0].input;
+  expect(request.runtimeSessionId).toBe(`lecture-lecture-run-${phase}-r2`);
+  expect(JSON.parse(request.payload.toString())).toMatchObject({ phase, attempt: 2, taskToken: "retry-token" });
 });
 it("skips STT for a silent MP4 and normalizes an empty timestamped transcript", async () => {
   await handler({ op: "transcribe", lectureId: "lecture", runId: "run", taskToken: "token" });

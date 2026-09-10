@@ -32,6 +32,8 @@
     "check:deployment": "python3 scripts/manage.py check",
     "user:create": "python3 scripts/manage.py user-create",
     "user:password": "python3 scripts/manage.py user-password",
+    "user:disable": "python3 scripts/manage.py user-disable",
+    "user:enable": "python3 scripts/manage.py user-enable",
     "destroy": "python3 scripts/manage.py destroy",
     "dev:config": "python3 scripts/manage.py dev-config",
     "check:public": "python3 scripts/check-public.py",

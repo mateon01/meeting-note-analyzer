@@ -281,9 +281,32 @@ def user(config: dict, email: str | None, reset=False) -> None:
     print("Cognito account is ready. No invitation email was sent.")
 
 
+def user_access(config: dict, email: str | None, *, enabled: bool, dry_run=False) -> None:
+    if not email or not email.strip():
+        raise OperationError("Pass --email to select the account to enable or disable")
+    identity(config)
+    pool = outputs(config, "Auth")["UserPoolId"]
+    payload = {"UserPoolId": pool, "Username": email.strip()}
+    existing = aws(config, "cognito-idp", "admin-get-user", payload, missing=True)
+    if not existing:
+        raise OperationError("Account does not exist in this installation")
+    verb = "enable" if enabled else "disable"
+    if existing.get("Enabled") is enabled:
+        print(f"Account is already {verb}d: {email}")
+        return
+    if dry_run:
+        print(f"Would {verb} account: {email}")
+        return
+    # Resolve an email alias once, then target the same Cognito user for the update.
+    payload = {"UserPoolId": pool, "Username": existing["Username"]}
+    # AdminDisableUser also revokes the user's refresh and access tokens in Cognito.
+    aws(config, "cognito-idp", f"admin-{verb}-user", payload)
+    print(f"Cognito account {verb}d: {email}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["configure", "doctor", "secrets", "bootstrap", "foundation", "models", "deploy", "diff", "synth", "status", "check", "dev-config", "user-create", "user-password", "destroy"])
+    parser.add_argument("command", choices=["configure", "doctor", "secrets", "bootstrap", "foundation", "models", "deploy", "diff", "synth", "status", "check", "dev-config", "user-create", "user-password", "user-disable", "user-enable", "destroy"])
     parser.add_argument("--email")
     parser.add_argument("--region")
     parser.add_argument("--project", dest="projectName")
@@ -291,7 +314,10 @@ def main() -> None:
     parser.add_argument("--offline", action="store_true")
     parser.add_argument("--slack", action="store_true")
     parser.add_argument("--confirm-project")
+    parser.add_argument("--dry-run", action="store_true", help="Preview user-disable or user-enable without changing the account")
     args = parser.parse_args()
+    if args.dry_run and args.command not in ("user-disable", "user-enable"):
+        parser.error("--dry-run is only supported for user-disable and user-enable")
     try:
         if args.command == "configure":
             configure(args)
@@ -303,6 +329,7 @@ def main() -> None:
         elif args.command == "synth": cdk(config, "synth", extra=["--quiet"])
         elif args.command == "deploy": deploy(config)
         elif args.command in ("user-create", "user-password"): user(config, args.email, args.command == "user-password")
+        elif args.command in ("user-disable", "user-enable"): user_access(config, args.email, enabled=args.command == "user-enable", dry_run=args.dry_run)
         else:
             who = identity(config)
             if args.command == "bootstrap": cdk(config, "bootstrap", extra=[f"aws://{who['Account']}/{config['region']}"])

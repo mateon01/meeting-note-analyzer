@@ -12,6 +12,18 @@ export interface DataStackProps extends StackProps {
   config: ProjectConfig;
 }
 
+/** Tier retained media and lecture results; expire temporary STT files. */
+export function dataLifecycleRules(): s3.LifecycleRule[] {
+  const tiering = { transitions: [{ storageClass: s3.StorageClass.INTELLIGENT_TIERING, transitionAfter: Duration.days(0) }] };
+  return [
+    { prefix: "stt/", expiration: Duration.days(30) },
+    { abortIncompleteMultipartUploadAfter: Duration.days(2) },
+    { prefix: "uploads/", ...tiering },
+    { prefix: "lecture-uploads/", ...tiering },
+    { prefix: "lecture-results/", ...tiering },
+  ];
+}
+
 /** Durable storage and optional operator notifications. */
 export class DataStack extends Stack {
   readonly dataBucket: s3.Bucket;
@@ -39,10 +51,7 @@ export class DataStack extends Stack {
           maxAge: 3600,
         },
       ],
-      lifecycleRules: [
-        { prefix: "stt/", expiration: Duration.days(30) },
-        { abortIncompleteMultipartUploadAfter: Duration.days(2) },
-      ],
+      lifecycleRules: dataLifecycleRules(),
     });
 
     this.table = new ddb.Table(this, "Table", {

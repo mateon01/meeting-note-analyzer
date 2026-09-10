@@ -31,6 +31,7 @@ function oidcConfig(cfg: AppConfig) {
       token_endpoint: `${cfg.cognitoDomain}/oauth2/token`,
       userinfo_endpoint: `${cfg.cognitoDomain}/oauth2/userInfo`,
       end_session_endpoint: `${cfg.cognitoDomain}/logout`,
+      revocation_endpoint: `${cfg.cognitoDomain}/oauth2/revoke`,
       jwks_uri: `${cfg.cognitoAuthority}/.well-known/jwks.json`,
     },
     onSigninCallback: () => {

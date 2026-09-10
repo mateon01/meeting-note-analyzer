@@ -14,6 +14,7 @@ import * as tasks from "aws-cdk-lib/aws-stepfunctions-tasks";
 import type { Construct } from "constructs";
 import { repoPath, type ProjectConfig } from "./config.js";
 import { nodeFn } from "./lambda-fn.js";
+import { CONSTRAINTS } from "@meeting-notes/shared";
 import { lambdaErrorsAlarm, notifyOn } from "./alarms.js";
 import { retainRuntimeLogs } from "./runtime-logs.js";
 import { sttNotificationFilter } from "./stt-notification-filter.js";
@@ -95,7 +96,7 @@ export class LectureStack extends Stack {
       outputs: "{% $states.result.Payload %}",
     });
     const transcribe = tasks.LambdaInvoke.jsonata(this, "Transcribe", { lambdaFunction: processor, integrationPattern: sfn.IntegrationPattern.WAIT_FOR_TASK_TOKEN,
-      payload: sfn.TaskInput.fromObject({ op: "transcribe", ...fields, taskToken: "{% $states.context.Task.Token %}" }), assign: { stt: "{% $states.result %}" }, taskTimeout: sfn.Timeout.duration(Duration.hours(2)),
+      payload: sfn.TaskInput.fromObject({ op: "transcribe", ...fields, taskToken: "{% $states.context.Task.Token %}" }), assign: { stt: "{% $states.result %}" }, taskTimeout: sfn.Timeout.duration(Duration.seconds(CONSTRAINTS.sttQueueTtlSec + CONSTRAINTS.sttInvocationTimeoutSec + 900)),
     });
     const prepare = tasks.LambdaInvoke.jsonata(this, "PrepareVideo", { lambdaFunction: processor, integrationPattern: sfn.IntegrationPattern.WAIT_FOR_TASK_TOKEN,
       payload: sfn.TaskInput.fromObject({ op: "prepare", ...fields, taskToken: "{% $states.context.Task.Token %}" }),
@@ -114,7 +115,7 @@ export class LectureStack extends Stack {
     process.branch(register.next(prepare).next(transcribe).next(normalize).next(analyze).next(complete));
     process.addCatch(failed, { outputs: { error: "{% $states.errorOutput %}" } });
     const machine = new sfn.StateMachine(this, "Pipeline", { stateMachineName: `${config.projectName}-lecture-pipeline`, queryLanguage: sfn.QueryLanguage.JSONATA,
-      definitionBody: sfn.DefinitionBody.fromChainable(initialize.next(process)), timeout: Duration.hours(12), tracingEnabled: true,
+      definitionBody: sfn.DefinitionBody.fromChainable(initialize.next(process)), timeout: Duration.hours(24), tracingEnabled: true,
       logs: { destination: new logs.LogGroup(this, "PipelineLogs", { retention: logs.RetentionDays.ONE_MONTH }), level: sfn.LogLevel.ERROR, includeExecutionData: false },
     });
     notifyOn(this, "LectureFailedAlarm", machine.metricFailed(), props.alarmTopic, "Lecture processing failed");

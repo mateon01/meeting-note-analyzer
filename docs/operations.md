@@ -22,11 +22,22 @@ Public sign-up is disabled. AWS administrators manage users through the helper o
 ```bash
 npm run user:create -- --email teammate@example.com
 npm run user:password -- --email teammate@example.com
+npm run user:disable -- --email teammate@example.com --dry-run
+npm run user:disable -- --email teammate@example.com
+npm run user:enable -- --email teammate@example.com
 ```
 
-Use the Cognito console to disable or delete an account. Deleting a Cognito account does not delete that user's recordings, notes, or chat history. Remove application data separately when required.
+The disable and enable commands require an explicit `--email` and use the user pool in this installation. Add `--dry-run` to either command to check the current account and preview the change. These commands do not send an email.
+
+Disabling an account blocks new sign-ins and revokes its tokens in Cognito. Enabling it allows the user to sign in again; previously revoked tokens remain revoked. See [Cognito token revocation](https://docs.aws.amazon.com/cognito/latest/developerguide/token-revocation.html).
+
+API Gateway validates JWT signatures and expiration without consulting Cognito's revocation state. An already issued ID token can therefore remain usable at the API until it expires, up to four hours with this application's settings. Account suspension is not an immediate API access cutoff.
+
+Use the Cognito console to delete an account. Disabling or deleting a Cognito account does not delete that user's recordings, notes, or chat history. Remove application data separately when required.
 
 The password command sets a new permanent password. It does not send an invitation email. Cognito's managed login also provides password recovery through the account's email address.
+
+Logging out from Settings first attempts to revoke the current session's refresh token, then clears the local session and opens Cognito's logout endpoint. If revocation fails, local logout still completes, but a copy of that refresh token can remain usable. Tokens already accepted by API Gateway have the expiration limit described above.
 
 ## Model files and instance changes
 
@@ -67,9 +78,29 @@ The main cost sources are:
 
 `sttMinInstances=0` allows the transcription endpoint to scale down while idle. This does not make the entire application free. The next transcription request waits for capacity and model loading. Set a nonzero minimum only when the faster start is worth the idle instance cost.
 
+New installations use `sttMaxInstances=4`. Existing `deploy.local.json` values take precedence, so pulling an update does not overwrite a saved capacity limit. Review the instance quota and capacity setting before raising it.
+
+Meeting and lecture transcription requests can wait in the shared SageMaker queue for up to six hours, followed by up to one hour of processing. The workflow allows another 15 minutes for the callback. Both workflows have a 24-hour overall limit. A longer queue wait does not increase the four-hour input-duration limit or guarantee that a request will finish. These settings follow the [SageMaker async request limits](https://docs.aws.amazon.com/sagemaker/latest/APIReference/API_runtime_InvokeEndpointAsync.html).
+
 `lectureMaxModelCalls` and `lectureMaxSearchCalls` set the per-attempt limits for lecture model and search calls. Their defaults are 800 and 240. `stageBudgetUsd` sets the meeting SDK budget per analysis stage; its default is 50. The SDK budget is an estimate, not an AWS billing cap. These counters are not monthly budgets or dollar limits, and explicit retries start another attempt. Long videos and many slide sections cost more than short examples. Check AWS billing and service metrics after testing with representative files.
 
 See current [SageMaker pricing](https://aws.amazon.com/sagemaker/ai/pricing/), [Bedrock pricing](https://aws.amazon.com/bedrock/pricing/), and [AgentCore pricing](https://aws.amazon.com/bedrock/agentcore/pricing/). Global inference profiles can route requests to other regions; select an appropriate profile if region boundaries matter for your data.
+
+## Storage lifecycle
+
+The Data stack applies these rules to the application bucket:
+
+| Prefix | Lifecycle |
+| --- | --- |
+| `uploads/` | Transition recordings to S3 Intelligent-Tiering with a zero-day rule |
+| `lecture-uploads/` | Apply the same rule to lecture videos and optional slide decks |
+| `lecture-results/` | Apply the same rule to rendered pages and study results |
+| `stt/` | Expire temporary transcription files after 30 days |
+| `results/`, `transcripts/`, `models/` | Keep meeting results, normalized transcripts, and model files in S3 Standard |
+
+S3 evaluates the zero-day transition after creation; it is not an immediate upload-time storage-class change. Objects smaller than 128 KB are excluded by S3's default lifecycle behavior. See [Intelligent-Tiering lifecycle rules](https://docs.aws.amazon.com/AmazonS3/latest/userguide/using-intelligent-tiering.html) and [transition constraints](https://docs.aws.amazon.com/AmazonS3/latest/userguide/lifecycle-transition-general-considerations.html).
+
+Optional Archive Access and Deep Archive Access tiers are not enabled. Incomplete multipart uploads are aborted after two days. Retained recordings and results have no automatic expiration rule.
 
 ## Monitoring
 

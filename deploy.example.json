@@ -10,7 +10,7 @@
   "sttModelVariant": "large",
   "sttInstanceType": "ml.g5.xlarge",
   "sttMinInstances": 0,
-  "sttMaxInstances": 2,
+  "sttMaxInstances": 4,
   "sttAutoscaling": true,
   "sttDeployEndpoint": false,
   "sttModelRevision": "1",

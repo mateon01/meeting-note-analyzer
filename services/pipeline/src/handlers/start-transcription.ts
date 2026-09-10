@@ -5,7 +5,7 @@ import { env, s3 } from "@meeting-notes/backend";
 import { pipelineEnv } from "../lib/env.js";
 import { setStage } from "../lib/meeting-updates.js";
 import { saveTaskToken } from "../lib/task-tokens.js";
-import { LECTURE_INFERENCE_PREFIX } from "@meeting-notes/shared";
+import { CONSTRAINTS, LECTURE_INFERENCE_PREFIX } from "@meeting-notes/shared";
 
 const smr = new SageMakerRuntimeClient({});
 
@@ -53,8 +53,8 @@ export const handler = async (input: StartTranscriptionInput) => {
       ContentType: "application/json",
       Accept: "application/json",
       InferenceId: inferenceId,
-      InvocationTimeoutSeconds: 3600,
-      RequestTTLSeconds: 3600,
+      InvocationTimeoutSeconds: CONSTRAINTS.sttInvocationTimeoutSec,
+      RequestTTLSeconds: CONSTRAINTS.sttQueueTtlSec,
       InputLocation: `s3://${env.dataBucket}/${requestKey}`,
     }),
   );

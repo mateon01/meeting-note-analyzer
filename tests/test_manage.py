@@ -5,7 +5,7 @@ import stat
 import subprocess
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 SPEC = importlib.util.spec_from_file_location("manage", Path(__file__).parents[1] / "scripts/manage.py")
 manage = importlib.util.module_from_spec(SPEC)
@@ -66,6 +66,47 @@ class DeploymentTests(unittest.TestCase):
     def test_invalid_origin_and_capacity_are_rejected(self):
         for change in ({"siteUrl": "https://example.com"}, {"sttMinInstances": 3, "sttMaxInstances": 2}):
             with self.assertRaises(manage.OperationError): manage.validate_config({**self.config, **change})
+
+    def test_account_access_requires_an_explicit_target(self):
+        config = {**self.config, "operatorEmail": "operator@example.test"}
+        with patch.object(manage, "identity") as identity, patch.object(manage, "aws") as aws:
+            for email in (None, "", " "):
+                with self.assertRaises(manage.OperationError):
+                    manage.user_access(config, email, enabled=False)
+            identity.assert_not_called()
+            aws.assert_not_called()
+
+    def test_account_access_uses_the_resolved_user_in_this_installation(self):
+        for enabled in (False, True):
+            with self.subTest(enabled=enabled), patch.object(manage, "identity") as identity, patch.object(manage, "outputs", return_value={"UserPoolId": "pool"}) as outputs, patch.object(manage, "aws", side_effect=[{"Username": "resolved-user", "Enabled": not enabled}, {}]) as aws:
+                manage.user_access(self.config, "teammate@example.test", enabled=enabled)
+                identity.assert_called_once_with(self.config)
+                outputs.assert_called_once_with(self.config, "Auth")
+                self.assertEqual(aws.call_args_list, [
+                    call(self.config, "cognito-idp", "admin-get-user", {"UserPoolId": "pool", "Username": "teammate@example.test"}, missing=True),
+                    call(self.config, "cognito-idp", "admin-enable-user" if enabled else "admin-disable-user", {"UserPoolId": "pool", "Username": "resolved-user"}),
+                ])
+
+    def test_account_preview_and_repeated_updates_do_not_modify_users(self):
+        for enabled in (False, True):
+            for current, dry_run in ((not enabled, True), (enabled, False)):
+                with self.subTest(enabled=enabled, current=current, dry_run=dry_run), patch.object(manage, "identity"), patch.object(manage, "outputs", return_value={"UserPoolId": "pool"}), patch.object(manage, "aws", return_value={"Username": "resolved-user", "Enabled": current}) as aws:
+                    manage.user_access(self.config, "teammate@example.test", enabled=enabled, dry_run=dry_run)
+                    aws.assert_called_once_with(self.config, "cognito-idp", "admin-get-user", {"UserPoolId": "pool", "Username": "teammate@example.test"}, missing=True)
+
+    def test_missing_accounts_and_aws_failures_are_reported(self):
+        for responses in ([None], [manage.OperationError("AccessDeniedException")], [{"Username": "resolved-user", "Enabled": True}, manage.OperationError("AccessDeniedException")]):
+            with self.subTest(responses=responses), patch.object(manage, "identity"), patch.object(manage, "outputs", return_value={"UserPoolId": "pool"}), patch.object(manage, "aws", side_effect=responses) as aws:
+                with self.assertRaises(manage.OperationError):
+                    manage.user_access(self.config, "teammate@example.test", enabled=False)
+                self.assertEqual(aws.call_count, len(responses))
+
+    def test_preview_flag_cannot_be_mistaken_for_a_deployment_preview(self):
+        with patch.object(manage.sys, "argv", ["manage.py", "deploy", "--dry-run"]), patch.object(manage, "load_config") as load:
+            with self.assertRaises(SystemExit) as error:
+                manage.main()
+            self.assertEqual(error.exception.code, 2)
+            load.assert_not_called()
 
 
 if __name__ == "__main__": unittest.main()

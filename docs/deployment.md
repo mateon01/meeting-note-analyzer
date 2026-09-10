@@ -10,7 +10,7 @@ Prepare the AWS account:
 
 1. Start with `us-east-1`. The application depends on Bedrock, AgentCore Runtime, Memory, Gateway, Web Search, managed knowledge bases, SageMaker async inference, CodeBuild, Lambda, Step Functions, Cognito, S3, DynamoDB, CloudFront, and Secrets Manager.
 2. Enable access to the Claude inference profiles listed in `deploy.example.json`. Complete any required model-provider or Marketplace access steps. `doctor` checks profile discovery, which does not prove that model invocations are authorized.
-3. Check the SageMaker quota for the configured endpoint instance type. The default is `ml.g5.xlarge`; at least one endpoint instance must be available.
+3. Check the SageMaker quota for the configured endpoint instance type. The default is `ml.g5.xlarge` with a scaling maximum of four instances. Available quota must cover the `sttMaxInstances` value you configure.
 4. Use an AWS role that can create the listed services, IAM roles and policies, and pass the execution roles to those services. CDK bootstrap also creates an asset bucket and ECR repository. Organizations SCPs can block deployments or cross-region model calls even when a local role allows them.
 
 Prepare Hugging Face access:
@@ -43,7 +43,7 @@ The configuration command creates an ignored, mode-0600 `deploy.local.json` file
 | `siteUrl` | Empty initially | Filled from the CloudFront stack output |
 | `cognitoDomainPrefix` | Generated | Cognito managed-login domain, unique per account and region |
 | `sttMinInstances` | `0` | Idle transcription capacity |
-| `sttMaxInstances` | `2` | Maximum transcription capacity |
+| `sttMaxInstances` | `4` | Maximum transcription capacity |
 | `sttDeployEndpoint` | `false` initially | Enabled by the deploy command after model files are ready |
 | `opusModel`, `sonnetModel`, `haikuModel` | See example file | Bedrock inference profile IDs |
 | `enableSlackAlarms` | `false` | Optional Slack alarm forwarder |

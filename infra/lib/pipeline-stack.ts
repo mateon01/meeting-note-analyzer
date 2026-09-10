@@ -10,7 +10,7 @@ import type * as sns from "aws-cdk-lib/aws-sns";
 import * as subs from "aws-cdk-lib/aws-sns-subscriptions";
 import * as sfn from "aws-cdk-lib/aws-stepfunctions";
 import * as tasks from "aws-cdk-lib/aws-stepfunctions-tasks";
-import { STAGES } from "@meeting-notes/shared";
+import { CONSTRAINTS, STAGES } from "@meeting-notes/shared";
 import type { Construct } from "constructs";
 import { lambdaErrorsAlarm, notifyOn } from "./alarms.js";
 import type { ProjectConfig } from "./config.js";
@@ -119,7 +119,8 @@ export class PipelineStack extends Stack {
         resume: resumeField,
         transcriptKey: "{% $exists($meeting.transcriptKey) ? $meeting.transcriptKey : null %}",
       }),
-      taskTimeout: sfn.Timeout.duration(Duration.seconds(7200)),
+      // Queue wait + processing as SageMaker enforces them, plus slack for the SNS callback to deliver the token.
+      taskTimeout: sfn.Timeout.duration(Duration.seconds(CONSTRAINTS.sttQueueTtlSec + CONSTRAINTS.sttInvocationTimeoutSec + 900)),
       assign: { stt: "{% $states.result %}" },
       outputs: "{% $states.result %}",
     });
@@ -205,7 +206,7 @@ export class PipelineStack extends Stack {
       definitionBody: sfn.DefinitionBody.fromChainable(definition),
       queryLanguage: sfn.QueryLanguage.JSONATA,
       stateMachineType: sfn.StateMachineType.STANDARD,
-      timeout: Duration.hours(12),
+      timeout: Duration.hours(24), // up to 7 h in STT plus ten agent stages of 1 h each
       tracingEnabled: true,
       logs: { destination: new logs.LogGroup(this, "SfnLogs", { retention: logs.RetentionDays.ONE_MONTH }), level: sfn.LogLevel.ALL, includeExecutionData: false },
     });

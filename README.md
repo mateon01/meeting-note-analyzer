@@ -110,6 +110,8 @@ After deployment, run `npm run check:deployment`, then sign in and upload a shor
 | `npm run check:deployment` | Check web configuration and Cognito callback URLs |
 | `npm run user:create -- --email teammate@example.com` | Create another login |
 | `npm run user:password -- --email teammate@example.com` | Set an existing user's password |
+| `npm run user:disable -- --email teammate@example.com` | Disable an account and revoke its Cognito sessions |
+| `npm run user:enable -- --email teammate@example.com` | Re-enable an account |
 | `npm run models:publish` | Republish STT weights; see [model updates](docs/operations.md#model-files-and-instance-changes) before redeploying |
 | `npm run dev:config` | Prepare ignored configuration for local frontend development |
 

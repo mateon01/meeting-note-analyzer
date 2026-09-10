@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "react-oidc-context";
 import { useApi } from "../lib/api";
 import { useConfig } from "../lib/use-config";
+import { navigateTo } from "../lib/navigation";
 import { currentSubscription, disablePush, enablePush, isIos, isStandalone, pushSupported } from "../lib/push";
 import { safeAreaInsets, samples, syncAppHeight } from "../lib/viewport";
 import { IconBell, IconHome, IconLogOut, IconShare } from "../components/icons";
@@ -40,9 +41,11 @@ export function SettingsPage() {
     }
   }
 
-  function logout() {
-    void auth.removeUser();
-    window.location.href = `${cfg.cognitoDomain}/logout?client_id=${encodeURIComponent(cfg.cognitoClientId)}&logout_uri=${encodeURIComponent(`${window.location.origin}/`)}`;
+  async function logout() {
+    // Revoke the 30-day refresh token first: clearing the device alone left it usable by anyone holding a copy.
+    await auth.revokeTokens(["refresh_token"]).catch((err: unknown) => console.warn("refresh token revocation failed", String(err)));
+    await auth.removeUser();
+    navigateTo(`${cfg.cognitoDomain}/logout?client_id=${encodeURIComponent(cfg.cognitoClientId)}&logout_uri=${encodeURIComponent(`${window.location.origin}/`)}`);
   }
 
   return (
@@ -85,7 +88,7 @@ export function SettingsPage() {
         </>
       )}
 
-      <Button variant="secondary" full className="mt-6" icon={<IconLogOut size={18} />} onClick={logout}>로그아웃</Button>
+      <Button variant="secondary" full className="mt-6" icon={<IconLogOut size={18} />} onClick={() => void logout()}>로그아웃</Button>
 
       <button className="tap mt-6 w-full text-center text-[12px] text-ink-3" onClick={() => { syncAppHeight("diag"); setDiag((v) => !v); }}>진단 정보 {diag ? "닫기" : "보기"}</button>
       {diag && <Diagnostics />}

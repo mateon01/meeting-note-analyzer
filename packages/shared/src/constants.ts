@@ -37,6 +37,9 @@ export const CONSTRAINTS = {
   /** STT async invocation is capped at 3600s by SageMaker; 4h of audio is the hard input limit. */
   maxAudioDurationSec: 4 * 3600,
   maxActiveMeetingsPerUser: 3,
+  /** SageMaker async caps a single invocation at 1 h and queue waiting at 6 h; the pipeline task timeouts derive from these. */
+  sttInvocationTimeoutSec: 3600,
+  sttQueueTtlSec: 6 * 3600,
   presignedUrlExpirySec: 3600,
   taskTokenTtlSec: 2 * 24 * 3600,
 } as const;

@@ -106,7 +106,8 @@ export class LectureStack extends Stack {
     const normalize = tasks.LambdaInvoke.jsonata(this, "Normalize", { lambdaFunction: processor, payload: sfn.TaskInput.fromObject({ op: "normalize", ...fields, stt: "{% $stt %}" }) });
     const analyze = tasks.LambdaInvoke.jsonata(this, "AnalyzeSlides", { lambdaFunction: processor, integrationPattern: sfn.IntegrationPattern.WAIT_FOR_TASK_TOKEN,
       payload: sfn.TaskInput.fromObject({ op: "analyze", ...fields, taskToken: "{% $states.context.Task.Token %}", attempt: "{% $states.context.State.RetryCount %}" }), assign: { result: "{% $states.result %}" },
-      taskTimeout: sfn.Timeout.duration(Duration.hours(6)), heartbeatTimeout: sfn.Timeout.duration(Duration.minutes(10)),
+      // Allow extra callback time for long lectures with many visual sections.
+      taskTimeout: sfn.Timeout.duration(Duration.hours(12)), heartbeatTimeout: sfn.Timeout.duration(Duration.minutes(10)),
     });
     // Bedrock outages longer than the runtime's own backoff (~1.5 min) come back as LectureTransient: run the step
     // again after 3 and 6 minutes. Completed scenes and pages are cached, so a retried step resumes where it stopped.

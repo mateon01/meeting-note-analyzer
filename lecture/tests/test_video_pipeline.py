@@ -6,7 +6,7 @@ import pymupdf
 import pytest
 
 from lecture_study.pipeline import analyze
-from lecture_study.schemas import Audience, Overview, Papers, SlideReading, Study, VideoMatch, VideoObservation
+from lecture_study.schemas import Audience, Overview, Papers, SlideReading, Study, VideoMatch, VideoObservation, VideoOutline
 from lecture_study.video import prepare_video
 from test_video import make_video, media_test
 
@@ -46,11 +46,14 @@ class Model:
             value = {"title": "Gradient descent" if "Gradient" in data["text"] else "Not presented", "description": "Attached slide", "concepts": ["Gradient"]}
         elif schema == VideoObservation:
             assert len(images) == 3 and all(p.stat().st_size > 0 for p in images)
-            first = data["startSec"] < 4 or data["startSec"] >= 8
+            first = data["startSec"] < 30 or data["startSec"] >= 60
             value = {"title": "Gradient descent" if first else "Board example", "description": "The board equation changes across the frames", "concepts": ["Gradient"], "visualType": "slide" if first else "demo"}
         elif schema == VideoMatch:
             assert len(images) == data["videoImageCount"] + len(data["candidates"])
             value = {"deckPage": 1, "confidence": 0.95, "reason": "Same displayed slide"}
+        elif schema == VideoOutline:
+            assert data["visualSections"] and data["windowStart"] == 0 and data["windowEnd"] == 90
+            value = {"chapters": [{"title": "Optimization", "topics": [{"title": "Gradient descent", "startSec": 0, "endSec": 60, "summary": "Intro"}, {"title": "Board example", "startSec": 60, "endSec": 90, "summary": "Board"}]}]}
         elif schema == Audience:
             value = {"level": "Undergraduate first course", "priorKnowledge": ["Calculus"], "lectureGoal": "Understand a gradient step"}
         elif schema == Study:
@@ -72,7 +75,8 @@ class Search:
 @media_test
 @pytest.mark.parametrize("with_deck,silent", [(False, False), (True, False), (False, True)])
 def test_real_video_to_visual_study_with_optional_deck_and_silent_track(tmp_path, with_deck, silent):
-    source = tmp_path / "video.mp4"; make_video(source, audio=not silent)
+    # Two topics need at least 30 seconds each; retain the same three scenes on a longer timeline.
+    source = tmp_path / "video.mp4"; make_video(source, audio=not silent, scene_seconds=30)
     deck = None
     if with_deck:
         deck = tmp_path / "deck.pdf"
@@ -86,19 +90,25 @@ def test_real_video_to_visual_study_with_optional_deck_and_silent_track(tmp_path
     store.rec.update(prepared)
     assert prepared["hasAudio"] is not silent
     assert prepare_video(store, work, lambda: None) == prepared  # Manifest/audio/frame cache is complete.
-    speech = [] if silent else [{"id": f"seg-{i}", "start": i, "end": i + 0.8, "speaker": "S1", "text": f"speech {i}"} for i in (1, 5, 9)]
-    store.values["transcript"] = {"durationSec": 12, "language": "en", "segments": speech}
+    speech = [] if silent else [{"id": f"seg-{i}", "start": i, "end": i + 0.8, "speaker": "S1", "text": f"speech {i}"} for i in (1, 31, 61)]
+    store.values["transcript"] = {"durationSec": 90, "language": "en", "segments": speech}
     analyze(store, work, lambda: None, model=model, search=Search())
     document = store.values[store.prefix + "runs/run-1/document.json"]
     assert document["videoAnalysis"]["sceneCount"] == 3
     assert any(p["source"] == "video" for p in document["pages"])
-    assert model.calls.count(VideoObservation) == 3
+    assert model.calls.count(VideoObservation) == 3 and model.calls.count(VideoOutline) == 1
+    if not with_deck:
+        # Three scenes become two topic pages cut along the outline; both belong to one chapter and share its papers.
+        first, second = document["pages"]
+        assert [p["title"] for p in (first, second)] == ["Gradient descent", "Board example"]
+        assert [len(p["videoRanges"]) for p in (first, second)] == [2, 1] and first["chapter"] == second["chapter"] == "Optimization"
+        assert model.calls.count(Papers) == 1 and first["research"] == second["research"]
     if with_deck:
         first, unseen, extra = document["pages"]
         assert first["deckPage"] == 1 and len(first["videoRanges"]) == 2
-        assert [s["segmentId"] for s in first["evidence"]] == ["seg-1", "seg-9"]
+        assert [s["segmentId"] for s in first["evidence"]] == ["seg-1", "seg-61"]
         assert unseen["videoRanges"] == [] and unseen["spokenSummary"] == ""
-        assert extra["source"] == "video" and extra["visualType"] == "demo"
+        assert extra["source"] == "video" and extra["visualType"] == "demo" and extra["chapter"] == "Optimization"
     if silent:
         assert all(not p["evidence"] and not p["spokenSummary"] for p in document["pages"])
         assert any("음성 트랙" in warning for warning in document["warnings"])

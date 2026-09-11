@@ -10,7 +10,7 @@ The app uses the CloudFront URL created during deployment, with HTTPS provided b
 - **Speaker review:** contextual corrections are checked against transcript evidence. Uncertain changes keep the original speaker and are marked for review. Compare the original and corrected transcripts or play the supporting speech. See [speaker review](docs/speaker-review.md).
 - **Meeting editing:** change a meeting title while analysis is running or after it finishes. Title and participant-name edits are coordinated with final document publication so concurrent saves preserve new results.
 - **Short meeting brief:** a separate recap of the outcome, decisions and their reasoning, action items, and unresolved questions. Decision explanations include transcript evidence when available.
-- **Lecture study:** upload an MP4, optionally with a PPTX or PDF. The pipeline matches screen content with spoken explanations and generates notes, questions, flashcards, and reference links.
+- **Lecture study:** upload an MP4, optionally with a PPTX or PDF. The pipeline connects screen content with spoken explanations, groups video sections into chapter and topic pages, and generates notes, questions, flashcards, and reference links. Pages in the same chapter share paper recommendations.
 - **Lecture recovery:** temporary model-service failures are retried automatically. A retried phase reuses cached scene and page analysis. See [retry behavior](docs/operations.md#lecture-retries).
 - **Lecture playback:** a playing lecture docks into a small player when its original position scrolls out of view. Long meeting and lecture titles wrap within the page.
 - **Paper search:** lecture references are retrieved through the AgentCore Web Search MCP connector and Gateway.

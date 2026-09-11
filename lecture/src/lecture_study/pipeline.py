@@ -4,6 +4,7 @@ from pathlib import Path
 from .alignment import page_evidence, transcript_batches, validate_alignment
 from .export import flashcard_csv, markdown
 from .model import Model
+from .parallel import parallel_map
 from .prompts import AUDIENCE_TASK, STUDY_CACHE_VERSION, STUDY_TASK
 from .schemas import Alignment, Audience, Overview, Papers, SlideReading, Study
 from .search import GatewaySearch, selected_papers
@@ -22,8 +23,8 @@ def learner_profile(store, model, language, record, sections, segments) -> dict:
 
 
 
-def research_page(model: Model, search: GatewaySearch, page: dict) -> dict:
-    queries = list(dict.fromkeys(q.strip()[:200] for q in page.get("searchQueries", []) if q.strip()))[:2]
+def research_page(model: Model, search: GatewaySearch, page: dict, max_queries: int = 2) -> dict:
+    queries = list(dict.fromkeys(q.strip()[:200] for q in page.get("searchQueries", []) if q.strip()))[:max_queries]
     sources, seen = [], set()
     try:
         for query in queries:
@@ -42,7 +43,7 @@ def research_page(model: Model, search: GatewaySearch, page: dict) -> dict:
         return {"status": "found" if papers else "none", "queries": queries, "papers": papers}
     except Exception as exc:
         # A failed search is visible and retryable. Never turn a service failure into "no papers found".
-        log.warning("paper search failed page=%s type=%s", page["page"], type(exc).__name__)
+        log.warning("paper search failed page=%s type=%s: %s", page["page"], type(exc).__name__, str(exc)[:300])
         return {"status": "failed", "queries": queries, "papers": [], "error": "논문 검색을 완료하지 못했습니다. 다시 시도할 수 있습니다."}
 
 
@@ -67,16 +68,14 @@ def analyze(store, workdir: Path, check, model=None, search=None, render=render_
     store.s3.download_file(store.bucket, record["assets"]["slides"]["key"], str(deck))
     store.progress("slides", 0, 1)
     slides = render(deck, workdir / "rendered")
-    readings = []
-    for i, slide in enumerate(slides):
-        check()
+    def read_slide(slide):
         reading = store.cached(f"slide-{slide['page']}.json", lambda slide=slide: model.generate(SlideReading,
             "Read this slide image, native text and author notes. Describe diagrams, equations and visible labels accurately, including math constraints. Use the output language. Do not treat speaker notes as evidence of recorded speech. Mark unreadable symbols instead of guessing.",
             {"outputLanguage": language, "page": slide["page"], "nativeText": slide["text"], "authorNotes": slide["speakerNotes"]}, image=slide["image"]).model_dump())
         SlideReading.model_validate(reading)
-        readings.append({"page": slide["page"], **reading})
         store.put(f"slides/{slide['page']}.png", slide["image"].read_bytes(), "image/png")
-        store.progress("slides", i + 1, len(slides))
+        return {"page": slide["page"], **reading}
+    readings = parallel_map(slides, read_slide, check=check, on_done=lambda n: store.progress("slides", n, len(slides)))
     store.update(pageCount=len(slides))
     audience = learner_profile(store, model, language, record, readings, segments)
 
@@ -93,9 +92,8 @@ def analyze(store, workdir: Path, check, model=None, search=None, render=render_
         alignments.append(alignment)
         store.progress("alignment", i + 1, len(batches))
 
-    pages = []
-    for i, (slide, reading) in enumerate(zip(slides, readings, strict=True)):
-        check()
+    def build_page(item):
+        slide, reading = item
         evidence, alignment = page_evidence(slide["page"], alignments, batches)
         def make_study(slide=slide, reading=reading, evidence=evidence, alignment=alignment):
             return model.generate(Study, STUDY_TASK,
@@ -103,19 +101,46 @@ def analyze(store, workdir: Path, check, model=None, search=None, render=render_
         study = Study.model_validate(store.cached(f"study-{slide['page']}.{STUDY_CACHE_VERSION}.json", make_study)).model_dump()
         if not evidence:
             study["spokenSummary"] = ""
-        pages.append({"page": slide["page"], "title": reading["title"], "slideText": slide["text"], "imageKey": store.prefix + f"slides/{slide['page']}.png", "alignment": alignment, "evidence": evidence, "outputLanguage": language, **study})
-        store.progress("study", i + 1, len(slides))
+        return {"page": slide["page"], "title": reading["title"], "slideText": slide["text"], "imageKey": store.prefix + f"slides/{slide['page']}.png", "alignment": alignment, "evidence": evidence, "outputLanguage": language, **study}
+    pages = parallel_map(zip(slides, readings, strict=True), build_page, check=check, on_done=lambda n: store.progress("study", n, len(slides)))
 
     return finish_lecture(store, model, search, check, record, language, pages, transcript["durationSec"], audience=audience)
 
 
+def research_groups(pages: list[dict]) -> list[dict]:
+    """Pages of one chapter (video topics) are researched once and share the papers; other pages keep their own search."""
+    groups, by_chapter = [], {}
+    for page in pages:
+        chapter = page.get("chapter")
+        if not chapter:
+            groups.append({"key": f"papers-{page['page']}.json", "pages": [page]})
+        elif chapter in by_chapter:
+            by_chapter[chapter]["pages"].append(page)
+        else:
+            by_chapter[chapter] = {"key": f"papers-chapter-{len(by_chapter) + 1}.json", "chapter": chapter, "pages": [page]}
+            groups.append(by_chapter[chapter])
+    return groups
+
+
+def research_group(model: Model, search: GatewaySearch, group: dict) -> dict:
+    pages = group["pages"]
+    if "chapter" not in group:
+        return research_page(model, search, pages[0])
+    queries = list(dict.fromkeys(q for page in pages for q in page.get("searchQueries", [])))
+    concepts = list({c["term"]: c for page in pages for c in page.get("concepts", [])}.values())[:12]
+    return research_page(model, search, {"page": pages[0]["page"], "title": group["chapter"], "concepts": concepts, "searchQueries": queries, "outputLanguage": pages[0]["outputLanguage"]}, max_queries=3)
+
+
 def finish_lecture(store, model, search, check, record, language, pages, duration, video_analysis=None, audience=None):
-    for i, page in enumerate(pages):
-        check()
-        page["research"] = store.cached(f"papers-{page['page']}.json", lambda page=page: research_page(model, search, page), accept=lambda value: value.get("status") != "failed")
+    groups = research_groups(pages)
+    researched = parallel_map(groups, lambda group: store.cached(group["key"], lambda: research_group(model, search, group), accept=lambda value: value.get("status") != "failed"),
+                              check=check, on_done=lambda n: store.progress("papers", n, len(groups)))
+    for group, research in zip(groups, researched, strict=True):
+        for page in group["pages"]:
+            page["research"] = research
+    for page in pages:
         del page["searchQueries"]
         del page["outputLanguage"]
-        store.progress("papers", i + 1, len(pages))
     def overview_task():
         task = "Summarize this lecture and propose a practical ordered review plan with learning objectives. Use only the provided summaries for lecture claims. Study recommendations are suggestions; never predict exam questions. Use the output language."
         rows = [{"page": p["page"], "title": p["title"], "summary": p["slideSummary"][:650], "spoken": p["spokenSummary"][:300]} for p in pages]

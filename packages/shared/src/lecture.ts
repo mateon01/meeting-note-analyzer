@@ -61,6 +61,8 @@ export interface LectureAudience { level: string; priorKnowledge: string[]; lect
 export interface LecturePage {
   page: number; title: string; slideText: string; imageKey: string;
   source?: "deck" | "video"; deckPage?: number;
+  /** Video topic pages carry the outline chapter they belong to; pages of one chapter share their paper research. */
+  chapter?: string;
   visualType?: "slide" | "whiteboard" | "demo" | "speaker" | "other";
   videoRanges?: { startSec: number; endSec: number; frameSec: number }[];
   slideSummary: string; spokenSummary: string; explanation: string;

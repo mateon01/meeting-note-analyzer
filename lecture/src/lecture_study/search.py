@@ -1,6 +1,7 @@
 """AgentCore managed web-search connector, accessed only through an IAM-authenticated MCP Gateway."""
 import json
 import os
+import threading
 from urllib.parse import urlsplit
 
 import boto3
@@ -54,6 +55,7 @@ class GatewaySearch:
         self.session = session or boto3.Session()
         self.tool: str | None = None
         self.calls = 0
+        self._lock = threading.Lock()  # searches run from page worker threads; the cap and cache must stay exact
         self.max_calls = int(os.environ.get("LECTURE_MAX_SEARCH_CALLS", "240"))
         if not 1 <= self.max_calls <= 720:
             raise ValueError("LECTURE_MAX_SEARCH_CALLS must be between 1 and 720")
@@ -118,15 +120,16 @@ class GatewaySearch:
         query = query.strip()[:200]
         if not query:
             return []
-        if query in self.cache:
-            return self.cache[query]
-        tool = self.discover()
-        if self.calls >= self.max_calls:
-            raise RuntimeError("Lecture search-call limit exceeded")
-        arguments = {"query": query}
-        if "maxResults" in self.parameters:
-            arguments["maxResults"] = 8
-        self.calls += 1
+        with self._lock:
+            if query in self.cache:
+                return self.cache[query]
+            tool = self.discover()
+            if self.calls >= self.max_calls:
+                raise RuntimeError("Lecture search-call limit exceeded")
+            arguments = {"query": query}
+            if "maxResults" in self.parameters:
+                arguments["maxResults"] = 8
+            self.calls += 1
         try:
             result = search_results(self.rpc("tools/call", {"name": tool, "arguments": arguments}))
             self.failures = 0
@@ -157,11 +160,11 @@ def gateway_check(query: str | None = None, search=None) -> dict:
 def selected_papers(choices, sources: list[dict]) -> list[dict]:
     """Copy source titles/URLs verbatim from MCP; the model supplies only the reading guidance."""
     papers, used = [], set()
-    for choice in choices.papers:
+    for choice in choices.papers[:3]:
         if choice.sourceId >= len(sources):
             raise ValueError("Paper choice references an unknown search result")
         if choice.sourceId in used:
             raise ValueError("Duplicate paper choice")
         used.add(choice.sourceId)
-        papers.append({**sources[choice.sourceId], "relevance": choice.relevance, "readingFocus": choice.readingFocus, "source": "agentcore_web_search"})
+        papers.append({**sources[choice.sourceId], "relevance": choice.relevance[:800], "readingFocus": choice.readingFocus[:800], "source": "agentcore_web_search"})
     return papers

@@ -102,7 +102,7 @@ def test_video_analysis_infers_audience_before_study(tmp_path):
     assert [s["title"] for s in audience_input["sections"]] == ["Page 1"]
     assert audience_input["openingSpeech"][0]["text"] == "We update the weights using the gradient."
     assert store.values[store.prefix + "runs/run-1/document.json"]["audience"] == FakeModel.AUDIENCE
-    assert store.prefix + f"cache/page-study-0.{STUDY_CACHE_VERSION}.json" in store.values
+    assert store.prefix + "cache/topic-study-0.v1.json" in store.values  # video sections are topic pages now
 
 
 def test_results_are_written_under_the_run_and_returned_as_keys(tmp_path):

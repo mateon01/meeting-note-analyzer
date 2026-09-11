@@ -13,14 +13,14 @@ HAS_FFMPEG = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
 media_test = pytest.mark.skipif(not HAS_FFMPEG, reason="FFmpeg integration tests run in the lecture container")
 
 
-def make_video(destination: Path, colors=("white", "navy", "white"), audio=True, offset=0):
+def make_video(destination: Path, colors=("white", "navy", "white"), audio=True, offset=0, scene_seconds=4):
     command = ["ffmpeg", "-y", "-v", "error"]
     for color in colors:
-        command += ["-f", "lavfi", "-i", f"color=c={color}:s=640x360:r=10:d=4"]
+        command += ["-f", "lavfi", "-i", f"color=c={color}:s=640x360:r=10:d={scene_seconds}"]
     if audio:
         if offset:
             command += ["-itsoffset", str(offset)]
-        command += ["-f", "lavfi", "-i", f"sine=frequency=440:duration={len(colors) * 4 - offset}"]
+        command += ["-f", "lavfi", "-i", f"sine=frequency=440:duration={len(colors) * scene_seconds - offset}"]
     command += ["-filter_complex", "".join(f"[{i}:v]" for i in range(len(colors))) + f"concat=n={len(colors)}:v=1:a=0[v]", "-map", "[v]"]
     if audio:
         command += ["-map", f"{len(colors)}:a", "-c:a", "aac"]

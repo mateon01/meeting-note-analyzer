@@ -26,6 +26,22 @@ class VideoObservation(Strict):
     visualType: Literal["slide", "whiteboard", "demo", "speaker", "other"]
 
 
+class VideoTopic(Strict):
+    title: str = Field(min_length=1, max_length=200)
+    startSec: float = Field(ge=0)
+    endSec: float = Field(ge=0)
+    summary: str = Field(min_length=1, max_length=600)
+
+
+class VideoChapter(Strict):
+    title: str = Field(min_length=1, max_length=200)
+    topics: list[VideoTopic] = Field(min_length=1, max_length=40)
+
+
+class VideoOutline(Strict):
+    chapters: list[VideoChapter] = Field(min_length=1, max_length=30)
+
+
 class VideoMatch(Strict):
     deckPage: int | None = Field(default=None, ge=1, le=120)
     confidence: float = Field(ge=0, le=1)
@@ -94,12 +110,13 @@ class Audience(Strict):
 
 class PaperChoice(Strict):
     sourceId: int = Field(ge=0)
-    relevance: str = Field(min_length=1, max_length=800)
-    readingFocus: str = Field(min_length=1, max_length=800)
+    # Generous bounds: the model tends to write long Korean guidance and a fourth choice; the selector trims to 3 and 800.
+    relevance: str = Field(min_length=1, max_length=2000)
+    readingFocus: str = Field(min_length=1, max_length=2000)
 
 
 class Papers(Strict):
-    papers: list[PaperChoice] = Field(max_length=3)
+    papers: list[PaperChoice] = Field(max_length=6)
 
 
 class Overview(Strict):

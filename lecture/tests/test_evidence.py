@@ -87,3 +87,11 @@ def test_model_rejects_truncated_output_and_validates_reference_ids():
     assert client.calls[0]["inferenceConfig"]["maxTokens"] == 8192
     with pytest.raises(ValueError, match="context"):
         model.generate(Alignment, "align", {"text": "x" * 180001})
+
+
+def test_paper_selection_trims_extra_choices_and_long_guidance_instead_of_failing():
+    sources = [{"title": f"Paper {i}", "url": f"https://arxiv.org/abs/000{i}", "snippet": "s"} for i in range(6)]
+    choices = Papers(papers=[{"sourceId": i, "relevance": "r" * 1500, "readingFocus": "f" * 900} for i in range(5)])
+    papers = selected_papers(choices, sources)
+    assert [p["url"] for p in papers] == [s["url"] for s in sources[:3]]
+    assert all(len(p["relevance"]) == 800 and len(p["readingFocus"]) == 800 for p in papers)

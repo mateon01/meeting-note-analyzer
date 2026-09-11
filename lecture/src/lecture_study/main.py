@@ -2,6 +2,7 @@
 import logging
 import tempfile
 import threading
+import time
 from pathlib import Path
 
 import boto3
@@ -38,9 +39,16 @@ def run(request: Request, store: Store, task_id: int):
                 dead.set()
                 return
 
+    last_checked, check_lock = [0.0], threading.Lock()
+
     def check():
         if dead.is_set():
             raise RuntimeError("Lecture task expired")
+        with check_lock:
+            # Worker threads call this before every model attempt; one consistent read every few seconds is enough.
+            if time.monotonic() - last_checked[0] < 5:
+                return
+            last_checked[0] = time.monotonic()
         store.record()
 
     thread = threading.Thread(target=heartbeat, daemon=True)

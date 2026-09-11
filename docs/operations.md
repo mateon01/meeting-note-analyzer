@@ -96,6 +96,10 @@ Cached scene and page analysis is reused. Work that did not produce a cached res
 
 When retries are exhausted, the lecture is marked failed and the normal failure alarm applies. Inspect the execution history and runtime log before requesting another attempt. The 24-hour workflow limit still applies.
 
+The slide-analysis callback timeout is 12 hours. AgentCore runtime sessions have an eight-hour maximum lifetime, within the workflow's 24-hour overall limit.
+
+Lecture page work runs on four threads by default. The runtime's `LECTURE_WORKERS` environment variable can select one to eight workers. More workers increase concurrent requests without changing the per-attempt model or search limits. Cached results remain available to later attempts, and output pages keep their input order.
+
 ## Storage lifecycle
 
 The Data stack applies these rules to the application bucket:

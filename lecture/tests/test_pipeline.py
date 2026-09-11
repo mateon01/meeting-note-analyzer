@@ -4,7 +4,7 @@ import io
 import shutil
 import pymupdf
 from lecture_study.pipeline import analyze
-from lecture_study.schemas import Alignment, Audience, Overview, Papers, SlideReading, Study, VideoObservation
+from lecture_study.schemas import Alignment, Audience, Overview, Papers, SlideReading, Study, VideoObservation, VideoOutline
 from lecture_study.export import flashcard_csv
 
 
@@ -46,6 +46,7 @@ class FakeModel:
         elif schema == Audience: value = self.AUDIENCE
         elif schema == Study: value = {**self.STUDY, "searchQueries": [f"gradient optimization research paper {data['reading'].get('page', 1)}"]}
         elif schema == Papers: value = {"papers": [{"sourceId": 0, "relevance": "Optimization methods", "readingFocus": "Algorithm"}]}
+        elif schema == VideoOutline: value = {"chapters": [{"title": "Optimization", "topics": [{"title": "Gradient descent", "startSec": data["windowStart"], "endSec": data["windowEnd"], "summary": "One topic spans the window"}]}]}
         else: value = {"overview": "This lecture introduces gradient-based optimization.", "learningObjectives": ["Explain a gradient step"], "reviewPlan": ["Review the derivation", "Answer the practice question"]}
         result = schema.model_validate(value)
         if validate: validate(result)

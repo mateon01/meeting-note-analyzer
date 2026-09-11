@@ -2,6 +2,7 @@
 import json
 import logging
 import os
+import threading
 import time
 from pathlib import Path
 from typing import Callable, TypeVar
@@ -37,6 +38,7 @@ class Model:
         # Retry explicitly below so every HTTP invocation attempt counts toward the cap.
         self.client = client or boto3.client("bedrock-runtime", config=Config(read_timeout=300, connect_timeout=10, retries={"total_max_attempts": 1}))
         self.check = check
+        self._lock = threading.Lock()  # pages are processed on a few threads; the cap and usage must stay exact
         self.calls = 0
         self.max_calls = int(os.environ.get("LECTURE_MAX_MODEL_CALLS", "800"))
         self.input_tokens, self.output_tokens = 0, 0
@@ -62,8 +64,9 @@ class Model:
                     raise ValueError("Visual reference exceeds the image size limit")
                 content.append({"image": {"format": "jpeg" if picture.suffix.lower() in (".jpg", ".jpeg") else "png", "source": {"bytes": data_bytes}}})
             response = self._converse(schema, content)
-            self.input_tokens += response.get("usage", {}).get("inputTokens", 0)
-            self.output_tokens += response.get("usage", {}).get("outputTokens", 0)
+            with self._lock:
+                self.input_tokens += response.get("usage", {}).get("inputTokens", 0)
+                self.output_tokens += response.get("usage", {}).get("outputTokens", 0)
             log.info("model task=%s attempt=%d usage=%s", schema.__name__, attempt + 1, response.get("usage"))
             try:
                 if response.get("stopReason") != "tool_use":
@@ -81,9 +84,10 @@ class Model:
         """One model answer; transient API failures are retried with backoff, every HTTP attempt counts toward the cap."""
         for delay in (*TRANSIENT_DELAYS, None):
             self.check()
-            if self.calls >= self.max_calls:
-                raise RuntimeError(f"Lecture model-call limit reached ({self.max_calls}). Completed work is cached; a manual retry starts a new bounded attempt.")
-            self.calls += 1
+            with self._lock:
+                if self.calls >= self.max_calls:
+                    raise RuntimeError(f"Lecture model-call limit reached ({self.max_calls}). Completed work is cached; a manual retry starts a new bounded attempt.")
+                self.calls += 1
             try:
                 return self.client.converse(
                     modelId=os.environ.get("LECTURE_MODEL", "global.anthropic.claude-sonnet-5"),

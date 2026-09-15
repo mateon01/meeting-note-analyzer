@@ -121,6 +121,18 @@ it("creates and starts a video-only lecture without requiring a slide upload", a
 });
 
 describe("processing slots", () => {
+  it("keeps the deleting record and slot until failed S3 cleanup is retried successfully", async () => {
+    mocks.deletePrefix.mockRejectedValueOnce(new Error("Failed to delete 1 S3 object(s): AccessDenied"));
+    await expect(removeLecture(caller, "test")).rejects.toThrow("AccessDenied");
+    expect(mocks.ddb).toHaveBeenCalledOnce();
+    expect(mocks.ddb.mock.calls[0]![0].input.UpdateExpression).toBe("SET deleting = :yes");
+    expect(mocks.release).not.toHaveBeenCalled();
+    mocks.get.mockResolvedValue({ ...fixture(), deleting: true });
+    mocks.deletePrefix.mockResolvedValue(0);
+    await removeLecture(caller, "test");
+    expect(mocks.ddb.mock.calls.at(-1)![0].input.ConditionExpression).toBe("deleting = :yes");
+    expect(mocks.release).toHaveBeenCalledExactlyOnceWith("alice");
+  });
   it("creates a lecture only together with a claimed slot", async () => {
     mocks.multipart.mockResolvedValue({ uploadId: "video", parts: [], partSize: 16 * 1024 * 1024, expiresAt: "later" });
     await createLecture(caller, createLectureSchema.parse({ title: "ML", video: { fileName: "a.mp4", fileSize: 10, contentType: "video/mp4" } }));

@@ -38,6 +38,7 @@ export class LectureStack extends Stack {
       partitionKey: { name: "PK", type: ddb.AttributeType.STRING }, sortKey: { name: "SK", type: ddb.AttributeType.STRING },
       billingMode: ddb.BillingMode.PAY_PER_REQUEST, timeToLiveAttribute: "ttl", removalPolicy: RemovalPolicy.RETAIN,
       pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
+      deletionProtection: true,
     });
     table.addGlobalSecondaryIndex({ indexName: "GSI1", partitionKey: { name: "GSI1PK", type: ddb.AttributeType.STRING }, sortKey: { name: "GSI1SK", type: ddb.AttributeType.STRING } });
     const servicePrincipal = (resource: string) => new iam.ServicePrincipal("bedrock-agentcore.amazonaws.com", { conditions: { StringEquals: { "aws:SourceAccount": this.account }, ArnLike: { "aws:SourceArn": `arn:${this.partition}:bedrock-agentcore:${this.region}:${this.account}:${resource}/*` } } });

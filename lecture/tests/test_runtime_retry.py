@@ -57,7 +57,7 @@ def runtime(monkeypatch):
     monkeypatch.setattr(main, "Store", lambda request: store)
     monkeypatch.setattr(main, "analyze", work)
     monkeypatch.setattr(main, "prepare_video", work)
-    monkeypatch.setattr(main.boto3, "client", lambda name: sfn)
+    monkeypatch.setattr(main.boto3, "client", lambda name, **kwargs: sfn)
     monkeypatch.setattr(main.threading, "Thread", Thread)
     monkeypatch.setattr(main.app, "add_async_task", Mock(return_value=1))
     monkeypatch.setattr(main.app, "complete_async_task", Mock())
@@ -122,3 +122,23 @@ def test_old_payloads_default_to_the_first_attempt(runtime):
     del runtime.payload["attempt"]
     assert main.invoke(runtime.payload) == {"status": "accepted"}
     assert runtime.record["analysisClaim"].endswith(":0000000000")
+
+
+@pytest.mark.parametrize("code,expected", [("ThrottlingException", "LectureTransient"), ("TaskTimedOut", "LectureAnalysisFailed")])
+def test_heartbeat_failure_keeps_its_classification_in_the_runtime(runtime, monkeypatch, code, expected):
+    error = client_error(code)
+    def heartbeat(store, sfn, token, stop, errors):
+        errors.append(error)
+    monkeypatch.setattr(main, "heartbeat_loop", heartbeat)
+
+    class Thread:
+        def __init__(self, target, args=(), **kwargs): self.target, self.args = target, args
+        def start(self): self.target(*self.args)
+        def join(self, **kwargs): pass
+
+    monkeypatch.setattr(main.threading, "Thread", Thread)
+    runtime.work.side_effect = lambda store, workdir, check: check()
+    main.invoke(runtime.payload)
+    assert runtime.sfn.send_task_failure.call_args.kwargs["error"] == expected
+    assert runtime.record["analysisClaim"].startswith("retry:") == (expected == "LectureTransient")
+    runtime.sfn.send_task_success.assert_not_called()

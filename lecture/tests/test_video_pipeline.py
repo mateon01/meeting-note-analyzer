@@ -75,7 +75,6 @@ class Search:
 @media_test
 @pytest.mark.parametrize("with_deck,silent", [(False, False), (True, False), (False, True)])
 def test_real_video_to_visual_study_with_optional_deck_and_silent_track(tmp_path, with_deck, silent):
-    # Two topics need at least 30 seconds each; retain the same three scenes on a longer timeline.
     source = tmp_path / "video.mp4"; make_video(source, audio=not silent, scene_seconds=30)
     deck = None
     if with_deck:
@@ -90,7 +89,7 @@ def test_real_video_to_visual_study_with_optional_deck_and_silent_track(tmp_path
     store.rec.update(prepared)
     assert prepared["hasAudio"] is not silent
     assert prepare_video(store, work, lambda: None) == prepared  # Manifest/audio/frame cache is complete.
-    speech = [] if silent else [{"id": f"seg-{i}", "start": i, "end": i + 0.8, "speaker": "S1", "text": f"speech {i}"} for i in (1, 31, 61)]
+    speech = [] if silent else [{"id": f"seg-{index}", "start": index, "end": index + 0.8, "speaker": "S1", "text": f"speech {index}"} for index in (1, 31, 61)]
     store.values["transcript"] = {"durationSec": 90, "language": "en", "segments": speech}
     analyze(store, work, lambda: None, model=model, search=Search())
     document = store.values[store.prefix + "runs/run-1/document.json"]
@@ -106,7 +105,7 @@ def test_real_video_to_visual_study_with_optional_deck_and_silent_track(tmp_path
     if with_deck:
         first, unseen, extra = document["pages"]
         assert first["deckPage"] == 1 and len(first["videoRanges"]) == 2
-        assert [s["segmentId"] for s in first["evidence"]] == ["seg-1", "seg-61"]
+        assert [segment["segmentId"] for segment in first["evidence"]] == ["seg-1", "seg-61"]
         assert unseen["videoRanges"] == [] and unseen["spokenSummary"] == ""
         assert extra["source"] == "video" and extra["visualType"] == "demo" and extra["chapter"] == "Optimization"
     if silent:

@@ -18,6 +18,7 @@ export function dataLifecycleRules(): s3.LifecycleRule[] {
   return [
     { prefix: "stt/", expiration: Duration.days(30) },
     { abortIncompleteMultipartUploadAfter: Duration.days(2) },
+    { noncurrentVersionExpiration: Duration.days(30) },
     { prefix: "uploads/", ...tiering },
     { prefix: "lecture-uploads/", ...tiering },
     { prefix: "lecture-results/", ...tiering },
@@ -41,6 +42,7 @@ export class DataStack extends Stack {
       encryption: s3.BucketEncryption.S3_MANAGED,
       enforceSSL: true,
       eventBridgeEnabled: true,
+      versioned: true,
       removalPolicy: RemovalPolicy.RETAIN,
       cors: [
         {
@@ -61,6 +63,7 @@ export class DataStack extends Stack {
       billingMode: ddb.BillingMode.PAY_PER_REQUEST,
       timeToLiveAttribute: "ttl",
       pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
+      deletionProtection: true,
       removalPolicy: RemovalPolicy.RETAIN,
     });
     this.table.addGlobalSecondaryIndex({

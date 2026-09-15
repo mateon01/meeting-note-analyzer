@@ -7,10 +7,11 @@ from pathlib import Path
 
 import boto3
 from bedrock_agentcore.runtime import BedrockAgentCoreApp
+from botocore.config import Config
 from botocore.exceptions import ClientError
 
 from .pipeline import analyze
-from .model import failure_code
+from .model import failure_code, is_transient
 from .schemas import Request
 from .store import Store
 from .video import prepare_video
@@ -19,6 +20,7 @@ from .search import gateway_check
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 app = BedrockAgentCoreApp()
+HEARTBEAT_DELAYS = (1, 2, 4, 8, 16)
 
 
 def claim_id(request: Request) -> str:
@@ -26,24 +28,31 @@ def claim_id(request: Request) -> str:
     return f"{request.runId}:{request.attempt:010d}"
 
 
-def run(request: Request, store: Store, task_id: int):
-    sfn = boto3.client("stepfunctions")
-    stop, dead = threading.Event(), threading.Event()
-
-    def heartbeat():
-        while not stop.wait(120):
+def heartbeat_loop(store, sfn, task_token, stop, errors):
+    while not stop.wait(120):
+        for delay in (*HEARTBEAT_DELAYS, None):
             try:
                 store.record()
-                sfn.send_task_heartbeat(taskToken=request.taskToken)
-            except Exception:
-                dead.set()
-                return
+                sfn.send_task_heartbeat(taskToken=task_token)
+                break
+            except Exception as exc:
+                if not is_transient(exc) or delay is None:
+                    errors.append(exc)
+                    return
+                log.warning("temporary lecture heartbeat failure; retrying in %ss", delay)
+                if stop.wait(delay):
+                    return
+
+
+def run(request: Request, store: Store, task_id: int):
+    sfn = boto3.client("stepfunctions", config=Config(connect_timeout=5, read_timeout=10, retries={"total_max_attempts": 3, "mode": "standard"}))
+    stop, heartbeat_errors = threading.Event(), []
 
     last_checked, check_lock = [0.0], threading.Lock()
 
     def check():
-        if dead.is_set():
-            raise RuntimeError("Lecture task expired")
+        if heartbeat_errors:
+            raise heartbeat_errors[0]
         with check_lock:
             # Worker threads call this before every model attempt; one consistent read every few seconds is enough.
             if time.monotonic() - last_checked[0] < 5:
@@ -51,7 +60,7 @@ def run(request: Request, store: Store, task_id: int):
             last_checked[0] = time.monotonic()
         store.record()
 
-    thread = threading.Thread(target=heartbeat, daemon=True)
+    thread = threading.Thread(target=heartbeat_loop, args=(store, sfn, request.taskToken, stop, heartbeat_errors), daemon=True)
     thread.start()
     try:
         with tempfile.TemporaryDirectory(prefix="lecture-") as tmp:

@@ -132,12 +132,12 @@ CDK_DEFAULT_ACCOUNT=000000000000 CDK_DEFAULT_REGION=us-east-1 AWS_EC2_METADATA_D
 uv sync --project agents --frozen --extra dev
 AWS_EC2_METADATA_DISABLED=true uv run --directory agents --extra dev pytest -q
 uv sync --project lecture --frozen --extra dev
-AWS_EC2_METADATA_DISABLED=true uv run --directory lecture --extra dev pytest -q
+AWS_EC2_METADATA_DISABLED=true uv run --directory lecture --extra dev pytest -q --require-media
 uv sync --project stt --frozen --extra dev
 AWS_EC2_METADATA_DISABLED=true uv run --directory stt --extra dev pytest -q
 ```
 
-Install FFmpeg, including `ffprobe`, to run the video tests and LibreOffice to run the PPTX conversion test. Those tests are skipped when the tools are missing. The default STT development environment also skips the PyTorch-dependent diarization test.
+Install FFmpeg, including `ffprobe`, to run the video tests and LibreOffice to run the PPTX conversion test. The lecture CI uses `--require-media`: missing media binaries, selecting no media tests, or skipping a media test fails the check. Local runs without this flag can skip video tests when tools are missing. The default STT development environment also skips the PyTorch-dependent diarization test.
 
 For a local frontend connected to your deployed backend:
 

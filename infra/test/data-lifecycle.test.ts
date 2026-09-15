@@ -16,4 +16,5 @@ it("tiers user media automatically from day zero and keeps the STT scratch expir
     expect(rules.map((r) => r.Prefix)).not.toContain(prefix);
   }
   expect(rules).toContainEqual({ AbortIncompleteMultipartUpload: { DaysAfterInitiation: 2 }, Status: "Enabled" });
+  expect(rules).toContainEqual({ NoncurrentVersionExpiration: { NoncurrentDays: 30 }, Status: "Enabled" });
 });

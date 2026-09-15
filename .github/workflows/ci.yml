@@ -48,7 +48,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - run: uv sync --frozen --extra dev
         working-directory: ${{ matrix.directory }}
-      - run: uv run --extra dev pytest -q
+      - run: uv run --extra dev pytest -q ${{ matrix.directory == 'lecture' && '--require-media' || '' }}
         working-directory: ${{ matrix.directory }}
   secrets:
     runs-on: ubuntu-latest

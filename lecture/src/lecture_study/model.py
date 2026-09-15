@@ -14,7 +14,7 @@ from pydantic import BaseModel, ValidationError
 
 T = TypeVar("T", bound=BaseModel)
 log = logging.getLogger(__name__)
-TRANSIENT_CODES = {"ThrottlingException", "ModelTimeoutException", "ServiceUnavailableException", "InternalServerException", "ModelNotReadyException"}
+TRANSIENT_CODES = {"ThrottlingException", "Throttling", "ProvisionedThroughputExceededException", "RequestLimitExceeded", "InternalServerError", "ModelTimeoutException", "ServiceUnavailableException", "InternalServerException", "ModelNotReadyException"}
 # In-process backoff covers Bedrock blips of about a minute and a half; the state machine retries the whole step for
 # longer outages (completed scenes/pages are cached, so a retried step resumes where it stopped).
 TRANSIENT_DELAYS = (1, 2, 4, 8, 16, 32, 32)

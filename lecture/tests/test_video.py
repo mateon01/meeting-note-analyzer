@@ -1,5 +1,4 @@
 import json
-import shutil
 from pathlib import Path
 
 import numpy as np
@@ -9,8 +8,7 @@ from lecture_study.schemas import VideoMatch
 from lecture_study.video import choose_scenes, extract_audio, probe_video, run_media, scan_video
 from lecture_study.video_analysis import evidence_for_ranges, validate_match
 
-HAS_FFMPEG = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
-media_test = pytest.mark.skipif(not HAS_FFMPEG, reason="FFmpeg integration tests run in the lecture container")
+media_test = pytest.mark.media
 
 
 def make_video(destination: Path, colors=("white", "navy", "white"), audio=True, offset=0, scene_seconds=4):

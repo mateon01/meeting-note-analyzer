@@ -118,6 +118,16 @@ Optional Archive Access and Deep Archive Access tiers are not enabled. Incomplet
 
 ## Monitoring
 
+### Cleanup and recovery safeguards
+
+The application data bucket uses versioning and expires noncurrent versions after 30 days. The main and lecture tables have deletion protection. Normal application deletion hides current S3 objects; it does not immediately erase retained historical versions. Review this retention policy before handling a request for permanent erasure.
+
+Object cleanup checks per-object S3 errors, retries only transient failures up to three times, and reports persistent failures instead of declaring success. A failed lecture deletion keeps its deleting record and any still-held processing slot so cleanup can be retried.
+
+Lecture heartbeats retry temporary network, throttling and service errors with waits of 1, 2, 4, 8 and 16 seconds. Exhausted retries preserve the transient error so the existing phase retry can recover. Expired task tokens and lost execution ownership stop the task without this retry. Recovery tests also cover older and duplicate attempts.
+
+The public CI validates code and templates only. It does not acquire deployment credentials or start AWS deployments; use the deployment commands for your installation after reviewing the diff.
+
 Use Step Functions to inspect meeting and lecture execution history. Each stage records its status, and completed stages are reused during supported retries. CloudWatch contains Lambda, SageMaker, CodeBuild, and AgentCore runtime logs.
 
 The Data stack creates an SNS topic for operational alarms. Set `alarmEmail` locally to subscribe an operator address, then confirm the subscription email.

@@ -11,6 +11,7 @@ import {
   UploadPartCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { setTimeout as sleep } from "node:timers/promises";
 import { CONSTRAINTS, planParts, rewriteUploadUrl, type UploadPartTarget } from "@meeting-notes/shared";
 
 /** Origin the browser should upload to (CloudFront in front of the bucket); unset = direct S3 URLs. */
@@ -100,10 +101,22 @@ export async function deletePrefix(prefix: string): Promise<number> {
     const list = await s3.send(
       new ListObjectsV2Command({ Bucket: env.dataBucket, Prefix: prefix, ContinuationToken: token }),
     );
-    const keys = (list.Contents ?? []).map((o) => ({ Key: o.Key! }));
-    if (keys.length) {
-      await s3.send(new DeleteObjectsCommand({ Bucket: env.dataBucket, Delete: { Objects: keys, Quiet: true } }));
-      deleted += keys.length;
+    let pending = (list.Contents ?? []).map((object) => ({ Key: object.Key! }));
+    for (let attempt = 0; pending.length; attempt++) {
+      const result = await s3.send(new DeleteObjectsCommand({ Bucket: env.dataBucket, Delete: { Objects: pending, Quiet: true } }));
+      const errors = result.Errors ?? [];
+      if (!errors.length) {
+        deleted += pending.length;
+        break;
+      }
+      const retryable = new Set(["InternalError", "ServiceUnavailable", "SlowDown", "RequestTimeout"]);
+      if (attempt >= 3 || errors.some((error) => !error.Key || !pending.some((object) => object.Key === error.Key) || !retryable.has(error.Code ?? ""))) {
+        throw new Error(`Failed to delete ${errors.length} S3 object(s): ${[...new Set(errors.map((error) => error.Code ?? "Unknown"))].join(", ")}`);
+      }
+      const failedKeys = new Set(errors.map((error) => error.Key));
+      deleted += pending.length - failedKeys.size;
+      pending = pending.filter((object) => failedKeys.has(object.Key));
+      await sleep(200 * 2 ** attempt);
     }
     token = list.IsTruncated ? list.NextContinuationToken : undefined;
   } while (token);

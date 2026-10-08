@@ -16,8 +16,9 @@ class Store:
         self.request = request
         self.bucket = os.environ["DATA_BUCKET"]
         self.s3 = boto3.client("s3")
-        self.table = boto3.resource("dynamodb").Table(os.environ["LECTURE_TABLE_NAME"])
-        self.prefix = f"lecture-results/{request.lectureId}/"
+        interview = request.kind == "interview"
+        self.table = boto3.resource("dynamodb").Table(os.environ["INTERVIEW_TABLE_NAME" if interview else "LECTURE_TABLE_NAME"])
+        self.prefix = f"{'interview' if interview else 'lecture'}-results/{request.lectureId}/"
         # Result files of one attempt live under runs/{runId}/; the record points at the published run.
         self.run_prefix = f"runs/{request.runId}/"
         self.key = {"PK": f"MEETING#{request.lectureId}", "SK": "META"}

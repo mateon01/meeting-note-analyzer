@@ -10,6 +10,7 @@ export interface ChatStreamFnProps {
   userPoolId: string;
   userPoolClientId: string;
   chatRuntimeArn: string;
+  chatRuntimeVersion: string;
 }
 
 /**
@@ -27,7 +28,7 @@ export class ChatStreamFn extends Construct {
       entry: "services/api/src/handlers/chat-stream.ts",
       timeout: Duration.minutes(15),
       memorySize: 512,
-      environment: { TABLE_NAME: props.table.tableName, USER_POOL_ID: props.userPoolId, USER_POOL_CLIENT_ID: props.userPoolClientId, CHAT_RUNTIME_ARN: props.chatRuntimeArn },
+      environment: { TABLE_NAME: props.table.tableName, USER_POOL_ID: props.userPoolId, USER_POOL_CLIENT_ID: props.userPoolClientId, CHAT_RUNTIME_ARN: props.chatRuntimeArn, CHAT_RUNTIME_VERSION: props.chatRuntimeVersion },
     });
     props.table.grantReadData(fn);
     // Both actions are checked when the X-Amzn-Bedrock-AgentCore-Runtime-User-Id header (runtimeUserId) is sent.

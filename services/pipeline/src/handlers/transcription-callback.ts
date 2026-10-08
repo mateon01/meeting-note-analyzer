@@ -1,7 +1,8 @@
 import type { SNSEvent } from "aws-lambda";
 import { SendTaskFailureCommand, SendTaskSuccessCommand, SFNClient } from "@aws-sdk/client-sfn";
 import { getTaskToken, deleteTaskToken } from "../lib/task-tokens.js";
-import { isLectureInference } from "@meeting-notes/shared";
+import { isInterviewInference, isLectureInference } from "@meeting-notes/shared";
+import { requireEnv } from "@meeting-notes/backend";
 
 const sfn = new SFNClient({});
 
@@ -39,11 +40,13 @@ export async function handleNotification(msg: SttNotification): Promise<"success
   if (!["meeting", "lecture"].includes(kind)) throw new Error("Invalid STT_CALLBACK_KIND");
   // Also protect the handler while a changed SNS filter is propagating.
   if (isLectureInference(msg.inferenceId) !== (kind === "lecture")) return "ignored";
-  const rec = await getTaskToken(msg.inferenceId);
+  const interviewTable = isInterviewInference(msg.inferenceId) ? requireEnv("INTERVIEW_TABLE_NAME") : undefined;
+  const rec = interviewTable ? await getTaskToken(msg.inferenceId, interviewTable) : await getTaskToken(msg.inferenceId);
   if (!rec) {
     console.info("duplicate or expired STT notification", { inferenceId: msg.inferenceId, status: msg.invocationStatus });
     return "ignored";
   }
+  const removeToken = () => interviewTable ? deleteTaskToken(msg.inferenceId!, rec.taskToken, interviewTable) : deleteTaskToken(msg.inferenceId!, rec.taskToken);
   try {
     if (msg.invocationStatus === "Completed" && msg.responseParameters?.outputLocation) {
       await sfn.send(
@@ -52,7 +55,7 @@ export async function handleNotification(msg: SttNotification): Promise<"success
           output: JSON.stringify({ inferenceId: msg.inferenceId, outputLocation: msg.responseParameters.outputLocation }),
         }),
       );
-      await deleteTaskToken(msg.inferenceId, rec.taskToken);
+      await removeToken();
       return "success";
     }
     await sfn.send(
@@ -62,11 +65,11 @@ export async function handleNotification(msg: SttNotification): Promise<"success
         cause: (msg.failureReason ?? `invocationStatus=${msg.invocationStatus ?? "unknown"}`).slice(0, 32768),
       }),
     );
-    await deleteTaskToken(msg.inferenceId, rec.taskToken);
+    await removeToken();
     return "failure";
   } catch (err) {
     if (isStaleToken(err)) {
-      await deleteTaskToken(msg.inferenceId, rec.taskToken);
+      await removeToken();
       console.info("STT task already finished", { inferenceId: msg.inferenceId });
       return "ignored";
     }

@@ -5,12 +5,12 @@ import { env, s3 } from "@meeting-notes/backend";
 import { pipelineEnv } from "../lib/env.js";
 import { setStage } from "../lib/meeting-updates.js";
 import { saveTaskToken } from "../lib/task-tokens.js";
-import { CONSTRAINTS, LECTURE_INFERENCE_PREFIX } from "@meeting-notes/shared";
+import { CONSTRAINTS, INTERVIEW_INFERENCE_PREFIX, LECTURE_INFERENCE_PREFIX } from "@meeting-notes/shared";
 
 const smr = new SageMakerRuntimeClient({});
 
 export interface StartTranscriptionInput {
-  kind?: "lecture";
+  kind?: "lecture" | "interview";
   taskToken: string;
   meetingId: string;
   ownerSub: string;
@@ -40,7 +40,7 @@ export const handler = async (input: StartTranscriptionInput) => {
     await sfn.send(new SendTaskSuccessCommand({ taskToken: input.taskToken, output: JSON.stringify({ skipped: true, transcriptKey: input.transcriptKey }) }));
     return { skipped: true, transcriptKey: input.transcriptKey };
   }
-  const inferenceId = `${input.kind === "lecture" ? LECTURE_INFERENCE_PREFIX : ""}${input.meetingId}-${Date.now()}`;
+  const inferenceId = `${input.kind === "interview" ? INTERVIEW_INFERENCE_PREFIX : input.kind === "lecture" ? LECTURE_INFERENCE_PREFIX : ""}${input.meetingId}-${Date.now()}`;
   await saveTaskToken(inferenceId, input.taskToken, input.meetingId);
   await setStage(input.meetingId, "stt", "RUNNING");
   const body = JSON.stringify(buildSttRequest(input, env.dataBucket, pipelineEnv.sttMode));

@@ -15,12 +15,12 @@ from . import memory, store
 from .config import CHAT_MODEL, MAX_TURNS
 from .payload import ChatPayload
 from .prompting import build_turn_prompt, select_history
-from .tools import TOOL_NAMES, TurnContext, build_server
+from .tools import TOOL_NAMES, TurnContext, build_server, _owned_lecture, _owned_meeting
 
 log = logging.getLogger("chat.agent")
 
 TOOL_TITLES = {
-    "mcp__meeting__search_meetings": "회의록 검색",
+    "mcp__meeting__search_meetings": "자료 검색",
     "mcp__meeting__get_meeting": "회의 문서 열기",
     "mcp__meeting__list_meetings": "회의 목록 조회",
     "mcp__meeting__get_transcript_window": "전사 구간 확인",
@@ -83,24 +83,37 @@ async def run_turn(payload: ChatPayload, workdir: Path) -> AsyncIterator[dict[st
     """Yield UI events for one turn. The caller (entrypoint) streams them as SSE."""
     t0 = time.time()
     try:
-        session = store.ensure_session(payload.sub, payload.sessionId, payload.meetingId)
+        session = store.ensure_session(payload.sub, payload.sessionId, payload.meetingId, payload.lectureId, payload.sourceType)
     except store.NotOwner:
         yield {"type": "error", "message": "세션을 찾을 수 없음"}
         return
-    scope_id = payload.meetingId or session.get("meetingId")
+    # The stored session is authoritative. A later turn cannot widen its search scope.
+    scope_id = session.get("meetingId")
+    lecture_id = session.get("lectureId")
+    source_type = session.get("sourceType") or ("lecture" if lecture_id else "meeting" if scope_id else "all")
+    ctx = TurnContext(sub=payload.sub, meeting_id=scope_id, lecture_id=lecture_id, source_type=source_type)
     scope = None
     if scope_id:
-        rec = store.table().get_item(Key={"PK": f"MEETING#{scope_id}", "SK": "META"}).get("Item")
-        if rec and rec.get("owner") == payload.sub:
-            scope = {"meetingId": scope_id, "title": rec.get("title")}
+        rec = _owned_meeting(ctx, scope_id)
+        if not rec:
+            yield {"type": "error", "message": "지정한 회의를 찾을 수 없습니다."}
+            return
+        scope = {"meetingId": scope_id, "title": rec.get("title")}
+    lecture_scope = None
+    if lecture_id:
+        rec = _owned_lecture(ctx, lecture_id)
+        if not rec:
+            yield {"type": "error", "message": "지정한 강의를 찾을 수 없습니다."}
+            return
+        lecture_scope = {"lectureId": lecture_id, "title": rec.get("title")}
     history_all = store.list_messages(payload.sessionId, limit=64)
     history, dropped = select_history(history_all)
     summary = session.get("summary") or (memory.session_summary(payload.sub, payload.sessionId) if dropped else None)
-    facts = memory.user_facts(payload.sub, payload.message)
-    prompt = build_turn_prompt(question=payload.message, history=history, summary=summary, facts=facts, meeting_scope=scope, language=payload.language)
+    facts = [] if source_type == "lecture" else memory.user_facts(payload.sub, payload.message)
+    prompt = build_turn_prompt(question=payload.message, history=history, summary=summary, facts=facts, meeting_scope=scope,
+                               lecture_scope=lecture_scope, source_type=source_type, language=payload.language)
 
     store.append_message(payload.sessionId, "user", payload.message)
-    ctx = TurnContext(sub=payload.sub, meeting_id=scope["meetingId"] if scope else None)
     options = build_options(ctx, workdir)
     text_parts: list[str] = []
     steps: list[dict[str, Any]] = []

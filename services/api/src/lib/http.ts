@@ -32,7 +32,7 @@ export function json(status: number, body: unknown): APIGatewayProxyResultV2 {
   };
 }
 
-export function parseBody<S extends z.ZodTypeAny>(event: APIGatewayProxyEventV2WithJWTAuthorizer, schema: S): z.output<S> {
+export function parseBody<S extends z.ZodTypeAny>(event: Pick<APIGatewayProxyEventV2WithJWTAuthorizer, "body" | "isBase64Encoded">, schema: S): z.output<S> {
   let raw: unknown;
   try {
     const text = event.isBase64Encoded && event.body ? Buffer.from(event.body, "base64").toString("utf8") : event.body;

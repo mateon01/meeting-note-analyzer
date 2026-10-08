@@ -36,3 +36,13 @@ it("treats consumed or stale callbacks as normal duplicates", async () => {
   expect(await handleNotification(notification)).toBe("ignored");
   expect(mocks.remove).toHaveBeenCalledOnce(); expect(console.warn).not.toHaveBeenCalled();
 });
+it("routes interview callbacks to the separate interview token table", async () => {
+  vi.stubEnv("INTERVIEW_TABLE_NAME", "interviews");
+  const msg = { ...notification, inferenceId: "lecture-i-abc-123" };
+  expect(await handleNotification(msg)).toBe("success");
+  expect(mocks.get).toHaveBeenCalledWith(msg.inferenceId, "interviews");
+  expect(mocks.remove).toHaveBeenCalledWith(msg.inferenceId, "token", "interviews");
+  mocks.get.mockClear(); vi.stubEnv("STT_CALLBACK_KIND", "meeting");
+  expect(await handleNotification(msg)).toBe("ignored");
+  expect(mocks.get).not.toHaveBeenCalled();
+});

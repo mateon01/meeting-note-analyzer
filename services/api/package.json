@@ -8,18 +8,19 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@aws-sdk/client-dynamodb": "^3.1127.0",
-    "@aws-sdk/lib-dynamodb": "^3.1127.0",
-    "@aws-sdk/client-s3": "^3.1127.0",
-    "@aws-sdk/s3-request-presigner": "^3.1127.0",
-    "@aws-sdk/client-ssm": "^3.1127.0",
-    "@aws-sdk/client-sfn": "^3.1127.0",
-    "@aws-sdk/client-secrets-manager": "^3.1127.0",
-    "@meeting-notes/shared": "*",
-    "zod": "^3.25.76",
-    "@meeting-notes/backend": "*",
     "@aws-sdk/client-bedrock-agentcore": "^3.1127.0",
-    "aws-jwt-verify": "^5.1.0"
+    "@aws-sdk/client-cognito-identity-provider": "^3.1141.0",
+    "@aws-sdk/client-dynamodb": "^3.1127.0",
+    "@aws-sdk/client-s3": "^3.1127.0",
+    "@aws-sdk/client-secrets-manager": "^3.1127.0",
+    "@aws-sdk/client-sfn": "^3.1127.0",
+    "@aws-sdk/client-ssm": "^3.1127.0",
+    "@aws-sdk/lib-dynamodb": "^3.1127.0",
+    "@aws-sdk/s3-request-presigner": "^3.1127.0",
+    "@meeting-notes/backend": "*",
+    "@meeting-notes/shared": "*",
+    "aws-jwt-verify": "^5.1.0",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/aws-lambda": "^8.10.152"

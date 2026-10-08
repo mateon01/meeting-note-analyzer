@@ -85,6 +85,7 @@ def test_model_rejects_truncated_output_and_validates_reference_ids():
     assert model.generate(Alignment, "align", {}).assignments == []
     assert len(client.calls) == 2
     assert client.calls[0]["inferenceConfig"]["maxTokens"] == 8192
+    assert client.calls[1]["inferenceConfig"]["maxTokens"] == 16384
     with pytest.raises(ValueError, match="context"):
         model.generate(Alignment, "align", {"text": "x" * 180001})
 

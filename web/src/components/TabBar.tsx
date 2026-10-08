@@ -1,9 +1,10 @@
 import { NavLink } from "react-router";
-import { IconChat, IconMeetings, IconSettings, IconUpload, IconStudy } from "./icons";
+import { IconChat, IconMeetings, IconSettings, IconUpload, IconStudy, IconUsers } from "./icons";
 
 const tabs = [
   { to: "/", label: "회의", Icon: IconMeetings },
   { to: "/lectures", label: "강의", Icon: IconStudy },
+  { to: "/interviews", label: "인터뷰", Icon: IconUsers },
   { to: "/upload", label: "업로드", Icon: IconUpload },
   { to: "/chat", label: "챗봇", Icon: IconChat, beta: true },
   { to: "/settings", label: "설정", Icon: IconSettings },

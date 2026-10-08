@@ -4,28 +4,30 @@ import { useQueryClient } from "@tanstack/react-query";
 import { CONSTRAINTS, type OutputLanguage } from "@meeting-notes/shared";
 import { useApi } from "../lib/api";
 import { uploadMultipart } from "../lib/upload";
-import { IconFileAudio, IconGlobe, IconLanguage, IconUpload, IconVideo } from "../components/icons";
+import { IconFileAudio, IconGlobe, IconLanguage, IconUpload, IconVideo, IconUsers } from "../components/icons";
 import { LectureUploadForm } from "./LectureUploadPage";
+import { InterviewUploadForm } from "./InterviewUploadPage";
 import { Button, Card, InlineError, Page, ProgressBar, SectionLabel, Segmented } from "../components/ui";
 
 const OUTPUT_OPTIONS: { value: OutputLanguage; label: string }[] = [{ value: "ko", label: "한국어" }, { value: "en", label: "English" }, { value: "auto", label: "회의 언어 그대로" }];
 const HINT_OPTIONS = [{ value: "auto", label: "자동 감지" }, { value: "ko", label: "한국어" }, { value: "en", label: "English" }, { value: "ja", label: "日本語" }, { value: "zh", label: "中文" }];
 
-type UploadKind = "meeting" | "lecture";
+type UploadKind = "meeting" | "lecture" | "interview";
 const KINDS: { value: UploadKind; label: string; icon: ReactNode; title: string; subtitle: string }[] = [
   { value: "meeting", label: "회의 녹음", icon: <IconFileAudio size={15} />, title: "새 회의 분석", subtitle: "mp3를 올리면 상세 회의록과 핵심 요약을 만듭니다" },
-  { value: "lecture", label: "강의 영상", icon: <IconVideo size={15} />, title: "새 강의 정리", subtitle: "강의 영상을 올리면 화면과 설명을 함께 정리합니다" },
+  { value: "lecture", label: "강의 노트", icon: <IconVideo size={15} />, title: "새 강의 정리", subtitle: "MP4 영상이나 MP3 음성으로 학습 자료를 만듭니다" },
+  { value: "interview", label: "인터뷰", icon: <IconUsers size={15} />, title: "새 인터뷰 노트", subtitle: "질문과 답변을 기록하고 선택한 기준으로 평가합니다" },
 ];
 
 /** One upload entry point: rounded tabs at the top switch between the meeting recording form and the lecture form (deep link: ?kind=lecture). */
 export function UploadPage() {
   const [params, setParams] = useSearchParams();
-  const kind: UploadKind = params.get("kind") === "lecture" ? "lecture" : "meeting";
+  const kind: UploadKind = params.get("kind") === "interview" ? "interview" : params.get("kind") === "lecture" ? "lecture" : "meeting";
   const current = KINDS.find((k) => k.value === kind)!;
   return (
     <Page title={current.title} subtitle={current.subtitle}>
       <Segmented className="mb-6" value={kind} onChange={(next) => setParams(next === "meeting" ? {} : { kind: next }, { replace: true })} options={KINDS.map(({ value, label, icon }) => ({ value, label, icon }))} />
-      {kind === "meeting" ? <MeetingUploadForm /> : <LectureUploadForm />}
+      {kind === "meeting" ? <MeetingUploadForm /> : kind === "lecture" ? <LectureUploadForm /> : <InterviewUploadForm />}
     </Page>
   );
 }

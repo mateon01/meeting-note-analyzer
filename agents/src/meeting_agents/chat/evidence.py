@@ -108,7 +108,7 @@ def format_for_model(items: list[dict[str, Any]]) -> str:
         return "검색 결과 없음"
     lines = []
     for e in items:
-        where = "전사" if e["kind"] == "transcript" else ("강의" + (f" {e['page']}장" if e.get("page") else "")) if e["kind"] == "lecture" else "회의록"
+        where = "전사" if e["kind"] == "transcript" else ("강의" + (f" 학습 항목 {e['page']}" if e.get("page") else "")) if e["kind"] == "lecture" else "회의록"
         when = f" {e['date']}" if e.get("date") else ""
         at = f" {e['startSec'] // 60:02d}:{e['startSec'] % 60:02d}" if e.get("startSec") is not None else ""
         lines.append(f"[{e['id']}] {e['title']}{when} | {where}{at}\n{e['snippet']}")

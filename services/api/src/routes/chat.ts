@@ -5,12 +5,22 @@ import type { ChatMessageDto, ChatSessionDto } from "@meeting-notes/shared";
 import { apiEnv } from "../lib/env.js";
 import { HttpError, type Caller } from "../lib/http.js";
 import { requireOwnedMeeting } from "./meetings.js";
+import { ownedLecture } from "./lectures.js";
 
-export const createChatSessionSchema = z.object({ meetingId: z.string().min(1).max(128).optional() });
+export const createChatSessionSchema = z.object({
+  sourceType: z.enum(["meeting", "lecture", "all"]).optional(),
+  meetingId: z.string().min(1).max(128).optional(),
+  lectureId: z.string().uuid().optional(),
+}).superRefine((value, ctx) => {
+  if ((value.meetingId && value.lectureId) || (value.sourceType === "lecture" && value.meetingId) || (value.sourceType === "meeting" && value.lectureId) ||
+      (value.sourceType === "all" && (value.meetingId || value.lectureId))) ctx.addIssue({ code: "custom", message: "대화할 자료 종류와 대상을 확인하세요" });
+});
 
 export async function createSession(caller: Caller, input: z.infer<typeof createChatSessionSchema>): Promise<{ session: ChatSessionDto }> {
   if (input.meetingId) await requireOwnedMeeting(caller, input.meetingId); // a foreign meeting id must not become a session scope
-  return { session: await createChatSession(caller.sub, randomUUID(), input.meetingId) };
+  if (input.lectureId) await ownedLecture(caller, input.lectureId);
+  const scope = { sourceType: input.sourceType ?? (input.lectureId ? "lecture" : "meeting"), ...(input.lectureId ? { lectureId: input.lectureId } : {}) } as const;
+  return { session: await createChatSession(caller.sub, randomUUID(), input.meetingId, scope) };
 }
 
 export async function listSessions(caller: Caller): Promise<{ items: ChatSessionDto[] }> {

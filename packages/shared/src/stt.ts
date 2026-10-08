@@ -2,7 +2,11 @@ import { z } from "zod";
 
 /** Namespace shared by the SageMaker inference ID and SNS message-body filters. */
 export const LECTURE_INFERENCE_PREFIX = "lecture-";
+// Interviews share the lecture SNS subscription, then route to their own token table.
+// Keep UUID + timestamp + prefix within SageMaker's 64-character inference ID limit.
+export const INTERVIEW_INFERENCE_PREFIX = `${LECTURE_INFERENCE_PREFIX}i-`;
 export function isLectureInference(inferenceId: string): boolean { return inferenceId.startsWith(LECTURE_INFERENCE_PREFIX); }
+export function isInterviewInference(inferenceId: string): boolean { return inferenceId.startsWith(INTERVIEW_INFERENCE_PREFIX); }
 
 /** Output written by the SageMaker STT container (CrisperWhisper + pyannote). */
 export const sttWordSchema = z.object({ w: z.string(), s: z.number(), e: z.number(), p: z.number().nullable().optional() });

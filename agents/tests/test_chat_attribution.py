@@ -58,7 +58,7 @@ def test_chat_does_not_name_an_uncertain_participant_from_its_candidate():
 
 
 async def test_transcript_tool_checks_ownership_before_any_storage_read(monkeypatch):
-    monkeypatch.setattr(tools, "tool", lambda *args: lambda handler: handler)
+    monkeypatch.setattr(tools, "tool", lambda *args, **kwargs: lambda handler: handler)
     monkeypatch.setattr(tools, "create_sdk_mcp_server", lambda **kwargs: {t.__name__: t for t in kwargs["tools"]})
     monkeypatch.setattr(tools, "_owned_meeting", lambda *args: None)
     storage = Mock()
@@ -71,7 +71,7 @@ async def test_transcript_tool_checks_ownership_before_any_storage_read(monkeypa
 
 
 async def test_transcript_tool_does_not_replay_proposals_when_corrected_file_is_missing(monkeypatch):
-    monkeypatch.setattr(tools, "tool", lambda *args: lambda handler: handler)
+    monkeypatch.setattr(tools, "tool", lambda *args, **kwargs: lambda handler: handler)
     monkeypatch.setattr(tools, "create_sdk_mcp_server", lambda **kwargs: {t.__name__: t for t in kwargs["tools"]})
     monkeypatch.setattr(tools, "_owned_meeting", lambda *args: RECORD)
     source = {"meetingId": "m1", "segments": [{"id": "seg-1", "speaker": "S1", "start": 0, "end": 5, "text": "발언"}]}
@@ -91,7 +91,7 @@ async def test_name_only_review_reaches_transcript_tools_without_flagging_every_
     markdown = Transcript(data).to_markdown("회의")
     assert markdown.count("[speaker name review required]") == 1
     assert "[speaker review required]" not in markdown
-    monkeypatch.setattr(tools, "tool", lambda *args: lambda handler: handler)
+    monkeypatch.setattr(tools, "tool", lambda *args, **kwargs: lambda handler: handler)
     monkeypatch.setattr(tools, "create_sdk_mcp_server", lambda **kwargs: {t.__name__: t for t in kwargs["tools"]})
     monkeypatch.setattr(tools, "_owned_meeting", lambda *args: {**RECORD, "notesKey": "document"})
     monkeypatch.setattr(tools, "_meeting_transcript", lambda rec: data)

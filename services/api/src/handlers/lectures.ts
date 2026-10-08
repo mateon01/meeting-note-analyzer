@@ -1,9 +1,10 @@
 import type { APIGatewayProxyEventV2WithJWTAuthorizer, APIGatewayProxyResultV2 } from "aws-lambda";
 import { z } from "zod";
-import { completeLectureUploadSchema, createLectureSchema, toLectureDto } from "@meeting-notes/shared";
+import { completeLectureUploadSchema, createLectureSchema, createLectureShareSchema, toLectureDto } from "@meeting-notes/shared";
 import { LectureLimitError, listLectures } from "@meeting-notes/backend";
 import { callerFrom, HttpError, json, parseBody, pathParam } from "../lib/http.js";
 import { completeLectureUpload, createLecture, lectureResult, ownedLecture, removeLecture, startLecture } from "../routes/lectures.js";
+import { createLectureShare, listLectureShares, revokeLectureShare } from "../routes/lecture-sharing.js";
 
 export const handler = async (event: APIGatewayProxyEventV2WithJWTAuthorizer): Promise<APIGatewayProxyResultV2> => {
   try {
@@ -18,6 +19,14 @@ export const handler = async (event: APIGatewayProxyEventV2WithJWTAuthorizer): P
     const id = pathParam(event, "id");
     if (!z.string().uuid().safeParse(id).success) throw new HttpError(404, "강의를 찾을 수 없습니다", "not_found");
     switch (event.routeKey) {
+      case "POST /api/lectures/{id}/shares": return json(201, await createLectureShare(caller, id, parseBody(event, createLectureShareSchema)));
+      case "GET /api/lectures/{id}/shares": return json(200, await listLectureShares(caller, id));
+      case "DELETE /api/lectures/{id}/shares/{shareId}": {
+        const shareId = pathParam(event, "shareId");
+        if (!z.string().uuid().safeParse(shareId).success) throw new HttpError(404, "공유 링크를 찾을 수 없습니다");
+        await revokeLectureShare(caller, id, shareId);
+        return json(204, {});
+      }
       case "GET /api/lectures/{id}": return json(200, { lecture: toLectureDto(await ownedLecture(caller, id)) });
       case "GET /api/lectures/{id}/result": return json(200, await lectureResult(caller, id));
       case "POST /api/lectures/{id}/complete-upload": await completeLectureUpload(caller, id, parseBody(event, completeLectureUploadSchema)); return json(204, {});

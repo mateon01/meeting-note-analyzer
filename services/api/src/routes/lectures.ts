@@ -16,22 +16,26 @@ export async function ownedLecture(caller: Caller, id: string) {
 export async function createLecture(caller: Caller, input: z.output<typeof createLectureSchema>): Promise<CreateLectureResponse> {
   const id = randomUUID(); const now = new Date().toISOString();
   const prefix = lectureKeys.inputPrefix(caller.sub, id);
-  const videoKey = `${prefix}video.mp4`;
+  const mediaKind = input.video ? "video" : "audio";
+  const mediaInput = input.video ?? input.audio!;
+  const mediaKey = `${prefix}${mediaKind}.${mediaKind === "video" ? "mp4" : "mp3"}`;
   const slidesKey = `${prefix}slides.${input.slides?.contentType === SLIDE_TYPES.pdf ? "pdf" : "pptx"}`;
-  const video = await createMultipartUpload(videoKey, input.video.contentType, input.video.fileSize, LECTURE_LIMITS.uploadExpirySec);
+  const media = await createMultipartUpload(mediaKey, mediaInput.contentType, mediaInput.fileSize, LECTURE_LIMITS.uploadExpirySec);
   let slides: Awaited<ReturnType<typeof createMultipartUpload>> | undefined;
   try {
     if (input.slides) slides = await createMultipartUpload(slidesKey, input.slides.contentType, input.slides.fileSize, LECTURE_LIMITS.uploadExpirySec);
     const rec: LectureRecord = { ...lectureKeys.record(id), SK: "META", GSI1PK: lectureKeys.user(caller.sub), GSI1SK: now,
       lectureId: id, owner: caller.sub, title: input.title, course: input.course, outputLanguage: input.outputLanguage, languageHint: input.languageHint,
+      ...(input.customPrompt ? { customPrompt: input.customPrompt } : {}),
+      ...(input.slideRange ? { slideRange: input.slideRange } : {}),
       status: "UPLOAD_PENDING", stages: {}, createdAt: now, updatedAt: now,
-      assets: { video: { ...input.video, key: videoKey, uploadId: video.uploadId, complete: false }, ...(slides && input.slides ? { slides: { ...input.slides, key: slidesKey, uploadId: slides.uploadId, complete: false } } : {}) },
+      assets: { [mediaKind]: { ...mediaInput, key: mediaKey, uploadId: media.uploadId, complete: false }, ...(slides && input.slides ? { slides: { ...input.slides, key: slidesKey, uploadId: slides.uploadId, complete: false } } : {}) },
     };
     // The record exists only if a processing slot was claimed in the same transaction (LectureLimitError -> 429).
     await claimLectureSlot(caller.sub, LECTURE_LIMITS.maxActive, { Put: { TableName: lectureTable(), Item: rec, ConditionExpression: "attribute_not_exists(PK)" } });
-    return { lecture: toLectureDto(rec), uploads: { video, slides } };
+    return { lecture: toLectureDto(rec), uploads: { [mediaKind]: media, slides } };
   } catch (error) {
-    await Promise.allSettled([abortMultipartUpload(videoKey, video.uploadId), ...(slides ? [abortMultipartUpload(slidesKey, slides.uploadId)] : [])]);
+    await Promise.allSettled([abortMultipartUpload(mediaKey, media.uploadId), ...(slides ? [abortMultipartUpload(slidesKey, slides.uploadId)] : [])]);
     throw error;
   }
 }
@@ -70,7 +74,7 @@ export async function startLecture(caller: Caller, id: string, retry = false) {
   // A previous StartExecution response may have been lost; STANDARD executions are idempotent for name + input.
   const pending = rec.status === "UPLOADED" && rec.runId;
   if (!pending && (retry ? !canRetryLecture(rec) : rec.status !== "UPLOAD_PENDING")) throw new HttpError(409, "현재 상태에서는 시작할 수 없습니다", "invalid_status");
-  if (!lectureUploadsComplete(rec)) throw new HttpError(409, "영상과 선택한 첨부 파일 업로드를 완료하세요", "uploads_incomplete");
+  if (!lectureUploadsComplete(rec)) throw new HttpError(409, "강의 파일과 선택한 장표 업로드를 완료하세요", "uploads_incomplete");
   const runId = pending || randomUUID();
   if (!pending) {
     const claim = { TableName: lectureTable(), Key: lectureKeys.record(id),
@@ -90,16 +94,19 @@ export async function startLecture(caller: Caller, id: string, retry = false) {
 export async function lectureResult(caller: Caller, id: string): Promise<LectureResultLinks> {
   const rec = await ownedLecture(caller, id);
   const prefix = lectureKeys.resultPrefix(id);
-  const [audioUrl, slidesUrl, markdownUrl, flashcardsUrl, pageImages, documentUrl, videoUrl] = await Promise.all([
+  const [audioUrl, slidesUrl, markdownUrl, flashcardsUrl, pageImages, documentUrl, videoUrl, transcriptUrl] = await Promise.all([
     rec.assets.audio?.complete ? presignDownload(rec.assets.audio.key) : null,
     rec.assets.slides?.complete ? presignDownload(rec.assets.slides.key) : null,
     rec.documentKey ? presignDownload(rec.markdownKey ?? `${prefix}study.md`) : null,
     rec.documentKey ? presignDownload(rec.flashcardsKey ?? `${prefix}flashcards.csv`) : null,
-    Promise.all(Array.from({ length: rec.documentKey ? Math.min(rec.pageCount ?? 0, LECTURE_LIMITS.maxResultPages) : 0 }, async (_, i) => ({ page: i + 1, url: await presignDownload(`${prefix}slides/${i + 1}.png`) }))),
+    rec.studyImages && rec.documentKey
+      ? Promise.all(rec.studyImages.map(async (image) => ({ page: image.page, sourcePage: image.sourcePage, url: await presignDownload(image.key) })))
+      : Promise.all(Array.from({ length: rec.documentKey && (rec.assets.video || rec.assets.slides) ? Math.min(rec.pageCount ?? 0, LECTURE_LIMITS.maxResultPages) : 0 }, async (_, i) => ({ page: i + 1, url: await presignDownload(`${prefix}slides/${i + 1}.png`) }))),
     rec.documentKey ? presignDownload(rec.documentKey) : null,
     rec.assets.video?.complete ? presignDownload(rec.assets.video.key) : null,
+    rec.transcriptKey ? presignDownload(rec.transcriptKey) : null,
   ]);
-  return { lecture: toLectureDto(rec), documentUrl, audioUrl, videoUrl, slidesUrl, markdownUrl, flashcardsUrl, pageImages };
+  return { lecture: toLectureDto(rec), documentUrl, audioUrl, videoUrl, slidesUrl, markdownUrl, flashcardsUrl, pageImages, transcriptUrl };
 }
 export async function removeLecture(caller: Caller, id: string) {
   const rec = await ownedLecture(caller, id);

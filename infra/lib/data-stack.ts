@@ -22,6 +22,8 @@ export function dataLifecycleRules(): s3.LifecycleRule[] {
     { prefix: "uploads/", ...tiering },
     { prefix: "lecture-uploads/", ...tiering },
     { prefix: "lecture-results/", ...tiering },
+    { prefix: "interview-uploads/", ...tiering },
+    { prefix: "interview-results/", ...tiering },
   ];
 }
 

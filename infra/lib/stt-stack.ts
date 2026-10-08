@@ -76,6 +76,7 @@ export class SttStack extends Stack {
       dataBucket.grantRead(role, "models/*");
       dataBucket.grantRead(role, "uploads/*");
       dataBucket.grantRead(role, "lecture-uploads/*");
+      dataBucket.grantRead(role, "interview-uploads/*/audio.mp3");
       dataBucket.grantRead(role, "lecture-results/*/video/audio.mp3");
       dataBucket.grantReadWrite(role, "stt/*");
       this.successTopic.grantPublish(role);

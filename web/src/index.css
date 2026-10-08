@@ -74,3 +74,27 @@ input[type="range"].seek::-moz-range-thumb { width: 16px; height: 16px; border: 
 
 @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 .skeleton { background: linear-gradient(90deg, var(--color-surface-2) 25%, var(--color-surface-3) 50%, var(--color-surface-2) 75%); background-size: 200% 100%; animation: shimmer 1.6s linear infinite; }
+
+.lecture-print { display: none; }
+@media print {
+  @page { size: A4; margin: 16mm; }
+  html, body { height: auto !important; overflow: visible !important; background: white !important; color: #111 !important; color-scheme: light; }
+  body:has(> .lecture-print) > :not(.lecture-print) { display: none !important; }
+  .lecture-print { display: block; font-size: 10pt; line-height: 1.65; overflow-wrap: anywhere; }
+  .lecture-print * { color: inherit !important; background: transparent !important; box-shadow: none !important; border-color: #ccc !important; }
+  .lecture-print h1 { font-size: 22pt; font-weight: 700; margin-bottom: 8mm; }
+  .lecture-print h2 { font-size: 16pt; font-weight: 700; margin: 7mm 0 3mm; }
+  .lecture-print h3 { font-size: 12pt; font-weight: 700; margin: 5mm 0 2mm; }
+  .lecture-print h4, .lecture-print dt { font-weight: 700; }
+  .lecture-print p, .lecture-print dd { margin: 2mm 0; }
+  .lecture-print > ul, .lecture-print > ol { padding-left: 5mm; }
+  .lecture-print > ul { list-style: disc; }
+  .lecture-print > ol { list-style: decimal; }
+  .lecture-print h1, .lecture-print h2, .lecture-print h3, .lecture-print h4 { break-after: avoid; }
+  .lecture-print p.font-semibold { break-after: avoid; }
+  .lecture-print-page { break-before: page; }
+  .lecture-print .katex-display { max-width: 100%; white-space: normal; overflow-wrap: normal; break-inside: avoid; }
+  .lecture-print .overflow-x-auto { overflow: visible !important; }
+  .lecture-print .katex { font-size: 1em; }
+  .lecture-print a { text-decoration: underline; }
+}

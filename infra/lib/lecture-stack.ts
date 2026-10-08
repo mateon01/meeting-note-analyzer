@@ -1,5 +1,6 @@
 import { CfnOutput, Duration, RemovalPolicy, Stack, type StackProps } from "aws-cdk-lib";
 import * as agentcore from "aws-cdk-lib/aws-bedrockagentcore";
+import * as cognito from "aws-cdk-lib/aws-cognito";
 import * as ddb from "aws-cdk-lib/aws-dynamodb";
 import * as assets from "aws-cdk-lib/aws-ecr-assets";
 import * as iam from "aws-cdk-lib/aws-iam";
@@ -18,6 +19,7 @@ import { CONSTRAINTS } from "@meeting-notes/shared";
 import { lambdaErrorsAlarm, notifyOn } from "./alarms.js";
 import { retainRuntimeLogs } from "./runtime-logs.js";
 import { sttNotificationFilter } from "./stt-notification-filter.js";
+import { InterviewService } from "./interview-service.js";
 
 interface LectureStackProps extends StackProps {
   config: ProjectConfig; dataBucket: s3.IBucket; table: ddb.ITable; sttEndpointName: string; sttEndpointArn: string;
@@ -27,6 +29,8 @@ interface LectureStackProps extends StackProps {
 /** Additive lecture service: isolated metadata, runtime, search Gateway, and workflow. */
 export class LectureStack extends Stack {
   readonly apiFunction: lambda.IFunction;
+  readonly interviewApiFunction: lambda.IFunction;
+  readonly guestApiFunction: lambda.IFunction;
   /** Lecture metadata; the chat runtime reads it for list_lectures / get_lecture. */
   readonly table: ddb.ITable;
   constructor(scope: Construct, id: string, props: LectureStackProps) {
@@ -41,6 +45,12 @@ export class LectureStack extends Stack {
       deletionProtection: true,
     });
     table.addGlobalSecondaryIndex({ indexName: "GSI1", partitionKey: { name: "GSI1PK", type: ddb.AttributeType.STRING }, sortKey: { name: "GSI1SK", type: ddb.AttributeType.STRING } });
+    const interviewTable = new ddb.Table(this, "InterviewTable", {
+      partitionKey: { name: "PK", type: ddb.AttributeType.STRING }, sortKey: { name: "SK", type: ddb.AttributeType.STRING },
+      billingMode: ddb.BillingMode.PAY_PER_REQUEST, timeToLiveAttribute: "ttl", removalPolicy: RemovalPolicy.RETAIN,
+      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true }, deletionProtection: true,
+    });
+    interviewTable.addGlobalSecondaryIndex({ indexName: "GSI1", partitionKey: { name: "GSI1PK", type: ddb.AttributeType.STRING }, sortKey: { name: "GSI1SK", type: ddb.AttributeType.STRING } });
     const servicePrincipal = (resource: string) => new iam.ServicePrincipal("bedrock-agentcore.amazonaws.com", { conditions: { StringEquals: { "aws:SourceAccount": this.account }, ArnLike: { "aws:SourceArn": `arn:${this.partition}:bedrock-agentcore:${this.region}:${this.account}:${resource}/*` } } });
     const gatewayRole = new iam.Role(this, "SearchRole", { assumedBy: servicePrincipal("gateway") });
     gatewayRole.addToPolicy(new iam.PolicyStatement({ actions: ["bedrock-agentcore:InvokeWebSearch"], resources: [`arn:${this.partition}:bedrock-agentcore:${this.region}:aws:tool/web-search.v1`] }));
@@ -59,16 +69,19 @@ export class LectureStack extends Stack {
     const runtimeRole = new iam.Role(this, "RuntimeRole", { assumedBy: servicePrincipal("runtime") });
     image.repository.grantPull(runtimeRole);
     table.grantReadWriteData(runtimeRole);
+    interviewTable.grantReadWriteData(runtimeRole);
     dataBucket.grantRead(runtimeRole, "lecture-uploads/*");
     dataBucket.grantReadWrite(runtimeRole, "lecture-results/*");
-    runtimeRole.addToPolicy(new iam.PolicyStatement({ actions: ["bedrock:InvokeModel"], resources: [`arn:${this.partition}:bedrock:*::foundation-model/${config.sonnetModel.replace(/^(global|us|eu|au|jp)\./, "")}*`, `arn:${this.partition}:bedrock:*:${this.account}:inference-profile/${config.sonnetModel}`] }));
+    dataBucket.grantRead(runtimeRole, "interview-uploads/*");
+    dataBucket.grantReadWrite(runtimeRole, "interview-results/*");
+    runtimeRole.addToPolicy(new iam.PolicyStatement({ actions: ["bedrock:InvokeModel"], resources: [...new Set([config.sonnetModel, config.opusModel])].flatMap((model) => [`arn:${this.partition}:bedrock:*::foundation-model/${model.replace(/^(global|us|eu|au|jp)\./, "")}*`, `arn:${this.partition}:bedrock:*:${this.account}:inference-profile/${model}`]) }));
     runtimeRole.addToPolicy(new iam.PolicyStatement({ actions: ["bedrock-agentcore:InvokeGateway"], resources: [gateway.attrGatewayArn] }));
     runtimeRole.addToPolicy(new iam.PolicyStatement({ actions: ["states:SendTaskSuccess", "states:SendTaskFailure", "states:SendTaskHeartbeat"], resources: ["*"] }));
     runtimeRole.addToPolicy(new iam.PolicyStatement({ actions: ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents", "logs:DescribeLogStreams", "ecr:GetAuthorizationToken"], resources: ["*"] }));
     const runtime = new agentcore.CfnRuntime(this, "Runtime", {
       agentRuntimeName: `${config.projectName.replace(/-/g, "_")}_lecture_study`, agentRuntimeArtifact: { containerConfiguration: { containerUri: image.imageUri } }, roleArn: runtimeRole.roleArn,
       protocolConfiguration: "HTTP", networkConfiguration: { networkMode: "PUBLIC" },
-      environmentVariables: { AWS_REGION: this.region, DATA_BUCKET: dataBucket.bucketName, LECTURE_TABLE_NAME: table.tableName, LECTURE_MODEL: config.sonnetModel, LECTURE_SEARCH_GATEWAY_URL: gateway.attrGatewayUrl, LECTURE_MAX_MODEL_CALLS: modelCallLimit, LECTURE_MAX_SEARCH_CALLS: searchCallLimit },
+      environmentVariables: { AWS_REGION: this.region, DATA_BUCKET: dataBucket.bucketName, LECTURE_TABLE_NAME: table.tableName, INTERVIEW_TABLE_NAME: interviewTable.tableName, INTERVIEW_MODEL: config.opusModel, LECTURE_MODEL: config.sonnetModel, LECTURE_SEARCH_GATEWAY_URL: gateway.attrGatewayUrl, LECTURE_MAX_MODEL_CALLS: modelCallLimit, LECTURE_MAX_SEARCH_CALLS: searchCallLimit },
       lifecycleConfiguration: { idleRuntimeSessionTimeout: 900, maxLifetime: 28800 },
     });
     retainRuntimeLogs(this, "RuntimeLogRetention", runtime.attrAgentRuntimeId);
@@ -77,7 +90,8 @@ export class LectureStack extends Stack {
       STT_ENDPOINT_NAME: props.sttEndpointName, LECTURE_RUNTIME_ARN: runtime.attrAgentRuntimeArn, WEB_ORIGIN: config.siteUrl, VAPID_SECRET_NAME: config.vapidSecretName };
     const processor = nodeFn(this, "Processor", { entry: "services/pipeline/src/handlers/lecture.ts", environment, timeout: Duration.minutes(3), memorySize: 1024 });
     const completeFn = nodeFn(this, "Complete", { entry: "services/pipeline/src/handlers/lecture.ts", environment: { ...environment, TABLE_NAME: props.table.tableName }, timeout: Duration.minutes(2) });
-    const callback = nodeFn(this, "SttCallback", { entry: "services/pipeline/src/handlers/transcription-callback.ts", environment: { ...environment, STT_CALLBACK_KIND: "lecture" } });
+    const callback = nodeFn(this, "SttCallback", { entry: "services/pipeline/src/handlers/transcription-callback.ts", environment: { ...environment, STT_CALLBACK_KIND: "lecture", INTERVIEW_TABLE_NAME: interviewTable.tableName } });
+    interviewTable.grantReadWriteData(callback);
     for (const fn of [processor, completeFn, callback]) table.grantReadWriteData(fn);
     dataBucket.grantReadWrite(processor);
     // Complete writes the knowledge-base sidecar next to the published run and deletes the superseded run.
@@ -131,6 +145,37 @@ export class LectureStack extends Stack {
     for (const prefix of ["lecture-uploads/*", "lecture-results/*"]) { dataBucket.grantReadWrite(api, prefix); dataBucket.grantDelete(api, prefix); }
     machine.grantStartExecution(api);
     this.apiFunction = api;
+    const guestPool = new cognito.CfnUserPool(this, "GuestUserPool", {
+      userPoolName: `${config.projectName}-lecture-guests`, userPoolTier: "ESSENTIALS", deletionProtection: "ACTIVE",
+      usernameAttributes: ["email"], autoVerifiedAttributes: ["email"], usernameConfiguration: { caseSensitive: false },
+      adminCreateUserConfig: { allowAdminCreateUserOnly: true }, mfaConfiguration: "OFF",
+      policies: { signInPolicy: { allowedFirstAuthFactors: ["PASSWORD", "EMAIL_OTP"] } },
+      emailConfiguration: { emailSendingAccount: "COGNITO_DEFAULT" },
+    });
+    guestPool.applyRemovalPolicy(RemovalPolicy.RETAIN);
+    const guestClient = new cognito.CfnUserPoolClient(this, "GuestUserPoolClient", {
+      userPoolId: guestPool.ref, clientName: "lecture-share-email-verification", generateSecret: true,
+      explicitAuthFlows: ["ALLOW_USER_AUTH", "ALLOW_REFRESH_TOKEN_AUTH"], preventUserExistenceErrors: "ENABLED",
+      authSessionValidity: 5, idTokenValidity: 1, accessTokenValidity: 1, refreshTokenValidity: 1,
+      tokenValidityUnits: { idToken: "hours", accessToken: "hours", refreshToken: "days" }, enableTokenRevocation: true,
+      readAttributes: ["email", "email_verified"],
+    });
+    const guestApi = nodeFn(this, "GuestApi", { entry: "services/api/src/handlers/guest-lectures.ts",
+      environment: { LECTURE_TABLE_NAME: table.tableName, DATA_BUCKET: dataBucket.bucketName, UPLOAD_BASE_URL: config.siteUrl,
+        GUEST_USER_POOL_ID: guestPool.ref, GUEST_USER_POOL_CLIENT_ID: guestClient.ref },
+      timeout: Duration.seconds(29), memorySize: 1024 });
+    table.grantReadWriteData(guestApi);
+    dataBucket.grantRead(guestApi, "lecture-results/*");
+    guestApi.addToRolePolicy(new iam.PolicyStatement({ resources: [guestPool.attrArn],
+      actions: ["cognito-idp:AdminCreateUser", "cognito-idp:AdminGetUser", "cognito-idp:AdminInitiateAuth", "cognito-idp:AdminRespondToAuthChallenge", "cognito-idp:DescribeUserPoolClient"] }));
+    this.guestApiFunction = guestApi;
+    new CfnOutput(this, "GuestUserPoolId", { value: guestPool.ref });
+    new CfnOutput(this, "GuestUserPoolClientId", { value: guestClient.ref });
+    const interviews = new InterviewService(this, "Interviews", { config, dataBucket, table: interviewTable, pushTable: props.table,
+      runtimeArn: runtime.attrAgentRuntimeArn, sttEndpointName: props.sttEndpointName, sttEndpointArn: props.sttEndpointArn, alarmTopic: props.alarmTopic });
+    this.interviewApiFunction = interviews.apiFunction;
+    new CfnOutput(this, "InterviewStateMachineArn", { value: interviews.stateMachine.stateMachineArn });
+    new CfnOutput(this, "InterviewTableName", { value: interviewTable.tableName });
     new CfnOutput(this, "StateMachineArn", { value: machine.stateMachineArn });
     new CfnOutput(this, "RuntimeArn", { value: runtime.attrAgentRuntimeArn });
     new CfnOutput(this, "SearchGatewayUrl", { value: gateway.attrGatewayUrl });

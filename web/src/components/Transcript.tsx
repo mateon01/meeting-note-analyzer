@@ -1,24 +1,28 @@
 import { useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import type { MeetingResultResponse, SpeakerCorrection, Transcript as TranscriptDoc } from "@meeting-notes/shared";
+import type { SpeakerCorrection, Transcript as TranscriptDoc } from "@meeting-notes/shared";
 import { urlPath, useStableUrl } from "../lib/stable-url";
 import { correctionTitle, reviewReasons } from "../lib/speaker-review";
+import { downloadTranscript } from "../lib/transcript-export";
 import { AudioPlayer, hms, type AudioPlayerHandle } from "./AudioPlayer";
 import { Avatar, Button, InlineError, Skeleton, speakerColorClass } from "./ui";
 
 interface Props {
+  title?: string;
   transcriptUrl: string;
   originalTranscriptUrl?: string | null;
   transcriptRevision?: string;
   audioUrl: string | null;
   speakerLabels: Record<string, string>;
+  speakerRoleLabels?: Record<string, string>;
   /** Unconfirmed name proposals (id -> label): shown as a hint next to the acoustic label, never as the identity. */
   proposedLabels?: Record<string, string>;
   confirmedSpeakerNames?: string[];
-  onRefreshUrls?: () => Promise<MeetingResultResponse | undefined>;
+  onRefreshUrls?: () => Promise<{ transcriptUrl?: string | null; originalTranscriptUrl?: string | null; audioUrl?: string | null } | undefined>;
+  onSeek?: (time: number) => void;
 }
 
-export function Transcript({ transcriptUrl, originalTranscriptUrl, transcriptRevision, audioUrl, speakerLabels, proposedLabels = {}, confirmedSpeakerNames = [], onRefreshUrls }: Props) {
+export function Transcript({ title = "전사", transcriptUrl, originalTranscriptUrl, transcriptRevision, audioUrl, speakerLabels, speakerRoleLabels, proposedLabels = {}, confirmedSpeakerNames = [], onRefreshUrls, onSeek }: Props) {
   const [showOriginal, setShowOriginal] = useState(false);
   const [reviewOnly, setReviewOnly] = useState(false);
   const original = showOriginal && !!originalTranscriptUrl;
@@ -30,6 +34,7 @@ export function Transcript({ transcriptUrl, originalTranscriptUrl, transcriptRev
   const [audioError, setAudioError] = useState<string | null>(null);
   const [audioLoading, setAudioLoading] = useState(false);
   const [current, setCurrent] = useState(0);
+  const [downloadError, setDownloadError] = useState("");
   const player = useRef<AudioPlayerHandle>(null);
 
   const recoverAudio = async (manual = false) => {
@@ -75,7 +80,7 @@ export function Transcript({ transcriptUrl, originalTranscriptUrl, transcriptRev
   });
   const data = q.data;
   const speakerIds = useMemo(() => Array.from(new Set((data?.segments ?? []).map((s) => s.speaker))), [data]);
-  const label = (id: string) => original ? id : speakerLabels[id] ?? data?.speakers.find((s) => s.id === id)?.label ?? id;
+  const label = (id: string) => speakerRoleLabels ? speakerRoleLabels[id] ?? "미확인 화자" : original ? id : speakerLabels[id] ?? data?.speakers.find((s) => s.id === id)?.label ?? id;
   const hint = (id: string) => (original ? undefined : proposedLabels[id]);
   const corrections = (original ? [] : data?.speakerAttribution?.corrections ?? []).filter((c) =>
     !(c.kind === "label" && confirmedSpeakerNames.includes(c.to)));
@@ -85,10 +90,19 @@ export function Transcript({ transcriptUrl, originalTranscriptUrl, transcriptRev
   const correctionsFor = (seg: TranscriptDoc["segments"][number]) => (seg.speakerCorrectionIds ?? [])
     .map((id) => correctionById.get(id)).filter((c): c is SpeakerCorrection => !!c);
   const segments = (data?.segments ?? []).filter((seg) => !filteringReview || correctionsFor(seg).some((c) => c.status === "review_required"));
+  const seekTime = (time: number) => onSeek ? onSeek(time) : player.current?.seek(time);
   const seek = (id: string) => {
     const seg = data?.segments.find((s) => s.id === id);
-    if (seg) player.current?.seek(seg.start);
+    if (seg) seekTime(seg.start);
   };
+  const exportOriginal = original || (!originalTranscriptUrl && !data?.attributed);
+  const exportLabel = exportOriginal ? "원본 전사" : "보정 전사";
+  function download(format: "txt" | "md") {
+    if (!data) return;
+    setDownloadError("");
+    try { downloadTranscript(data, { title, variant: exportOriginal ? "original" : "corrected", format, speakerLabels, speakerRoleLabels, confirmedSpeakerNames }); }
+    catch { setDownloadError("전사 파일을 저장하지 못했습니다. 다시 시도하세요."); }
+  }
 
   return (
     <div>
@@ -108,6 +122,10 @@ export function Transcript({ transcriptUrl, originalTranscriptUrl, transcriptRev
       {q.error && <InlineError>{(q.error as Error).message}<button className="tap underline ml-2" onClick={() => { void q.refetch(); }}>다시 불러오기</button></InlineError>}
       {!data && !q.error && <div className="space-y-3"><Skeleton className="h-16" /><Skeleton className="h-14" /><Skeleton className="h-14" /></div>}
       {data && <>
+        <div className="my-3"><p className="text-xs text-ink-3 mb-2">{exportLabel} 전체 다운로드 · 시간과 화자 포함</p><div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="secondary" aria-label={`${exportLabel} TXT 다운로드`} onClick={() => download("txt")}>TXT 다운로드</Button>
+          <Button size="sm" variant="secondary" aria-label={`${exportLabel} Markdown 다운로드`} onClick={() => download("md")}>Markdown 다운로드</Button>
+        </div>{downloadError && <InlineError>{downloadError}</InlineError>}</div>
         {original && <p className="text-xs text-ink-3 mb-3">음성 분석에서 구분한 원래 화자입니다. 발언 내용과 시간은 보정 전사와 같습니다.</p>}
         {!original && data.attributed && !data.speakerAttribution && <p className="text-xs text-ink-3 mb-3">이전 방식으로 보정된 전사입니다. 발언별 검토 정보는 없습니다. 원본과 비교해 확인해 주세요.</p>}
         {!original && data.speakerAttribution && (
@@ -137,7 +155,7 @@ export function Transcript({ transcriptUrl, originalTranscriptUrl, transcriptRev
             const newSpeaker = idx === 0 || segments[idx - 1]?.speaker !== seg.speaker;
             return (
               <li key={seg.id} data-segment-id={seg.id}>
-                <button onClick={() => player.current?.seek(seg.start)} className={`tap w-full text-left rounded-xl px-3 py-2 transition-colors ${active ? "bg-accent-soft ring-1 ring-accent/40" : "active:bg-surface"}`}>
+                <button onClick={() => seekTime(seg.start)} className={`tap w-full text-left rounded-xl px-3 py-2 transition-colors ${active ? "bg-accent-soft ring-1 ring-accent/40" : "active:bg-surface"}`}>
                   {(newSpeaker || changes.length > 0) && (
                     <div className="flex flex-wrap items-center gap-2 mb-1">
                       <Avatar name={label(seg.speaker)} index={si} size={22} />

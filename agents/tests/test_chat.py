@@ -52,7 +52,7 @@ def test_stream_delta_mapping_and_tool_titles():
     assert _delta_event({"type": "content_block_delta", "delta": {"type": "text_delta", "text": "안"}}) == {"type": "text", "delta": "안"}
     assert _delta_event({"type": "content_block_delta", "delta": {"type": "thinking_delta", "thinking": "..."}}) == {"type": "thinking", "delta": "..."}
     assert _delta_event({"type": "content_block_start"}) is None
-    assert tool_title("mcp__meeting__search_meetings", {"query": "타임아웃"}) == "회의록 검색: 타임아웃"
+    assert tool_title("mcp__meeting__search_meetings", {"query": "타임아웃"}) == "자료 검색: 타임아웃"
 
 
 def test_speaker_namer_uses_selected_ids_and_honors_manual_names():
@@ -124,7 +124,7 @@ def test_lecture_chunks_become_lecture_evidence_with_page_links():
     assert items[0]["url"] == "https://x/lectures/lec-1?page=5"
     assert items[1]["page"] is None and items[1]["url"] == "https://x/lectures/lec-1"
     text = evidence.format_for_model(items)
-    assert "[E1] 선형대수학 1주차 2026-09-06 | 강의 5장" in text and "[E2] 선형대수학 1주차 | 강의" in text
+    assert "[E1] 선형대수학 1주차 2026-09-06 | 강의 학습 항목 5" in text and "[E2] 선형대수학 1주차 | 강의" in text
     assert evidence.diversify(results * 3, per_document=3, limit=8)[3] is results[1]  # one lecture cannot fill every slot
 
 
@@ -157,7 +157,9 @@ def test_completed_lectures_and_lecture_document_tools(monkeypatch):
     page = tools.compact_lecture(document, "lec-1", page=5)
     assert page["page"]["title"] == "체의 정의" and page["page"]["mathNotes"][0]["statement"] == "$F$" and page["page"]["startSec"] == 300
     assert "overview" not in page
-    assert tools.compact_lecture(document, "lec-1", page=9) == {"error": "page not found", "pages": [1, 5]}
+    missing = tools.compact_lecture(document, "lec-1", page=9)
+    assert "page not found" in missing["error"]
+    assert [p["page"] for p in missing["pages"]] == [1, 5]
 
 
 def test_gateway_calls_are_signed_with_the_runtime_role_not_the_user_token(monkeypatch):
@@ -202,7 +204,7 @@ def test_lecture_evidence_gets_its_page_from_the_study_document():
     assert items[0]["page"] == 9 and items[0]["url"] == "https://x/lectures/lec-1?page=9"
     assert loads == ["lec-1"]  # one document read per lecture, only for items still missing a page
     assert items[1]["page"] == 3 and items[2]["page"] is None
-    assert "강의 9장" in evidence.format_for_model([{**items[0], "id": "E1", "title": "T", "date": None, "startSec": None}])
+    assert "강의 학습 항목 9" in evidence.format_for_model([{**items[0], "id": "E1", "title": "T", "date": None, "startSec": None}])
 
 
 def test_compact_document_exposes_the_brief_without_unsupported_reasons():

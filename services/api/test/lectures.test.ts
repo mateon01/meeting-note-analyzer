@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { completeLectureUploadSchema, createLectureSchema, lectureKeys, parseUploadKey, SLIDE_TYPES, type LectureRecord } from "@meeting-notes/shared";
+import { completeLectureUploadSchema, createLectureSchema, lectureKeys, parseUploadKey, parseSlideRange, SLIDE_TYPES, type LectureRecord } from "@meeting-notes/shared";
 
 const mocks = vi.hoisted(() => ({ claim: vi.fn(), release: vi.fn(), get: vi.fn(), list: vi.fn(), ddb: vi.fn(), s3: vi.fn(), start: vi.fn(), sign: vi.fn(), read: vi.fn(), multipart: vi.fn(), complete: vi.fn(), abort: vi.fn(), deletePrefix: vi.fn() }));
 vi.mock("@meeting-notes/backend", async (importOriginal) => ({
@@ -20,6 +20,34 @@ const fixture = (): LectureRecord => ({ PK: "MEETING#test", SK: "META", GSI1PK: 
 beforeEach(() => { vi.resetAllMocks(); mocks.get.mockResolvedValue(fixture()); mocks.ddb.mockResolvedValue({}); mocks.claim.mockResolvedValue(undefined); mocks.release.mockResolvedValue(undefined); mocks.start.mockResolvedValue({ executionArn: "execution" }); });
 
 describe("lecture inputs", () => {
+  it("validates a separate optional page range and requires an attached deck", () => {
+    const input = { title: "Class", audio: { fileName: "a.mp3", contentType: "audio/mpeg", fileSize: 100 },
+      slides: { fileName: "s.pdf", contentType: SLIDE_TYPES.pdf, fileSize: 100 } };
+    expect(createLectureSchema.parse({ ...input, slideRange: " 38–47 " }).slideRange).toBe("38–47");
+    expect(parseSlideRange("3-5, 9, 4")).toEqual([3, 4, 5, 9]);
+    for (const slideRange of ["0-3", "9-2", "119-121", "1-4 junk"]) {
+      expect(createLectureSchema.safeParse({ ...input, slideRange }).success).toBe(false);
+    }
+    expect(createLectureSchema.safeParse({ ...input, slides: undefined, slideRange: "1-4" }).success).toBe(false);
+  });
+  it("accepts omitted or blank custom requests and trims and bounds optional text", () => {
+    const input = { title: "Class", audio: { fileName: "a.mp3", contentType: "audio/mpeg", fileSize: 100 } };
+    expect(createLectureSchema.parse(input).customPrompt).toBe("");
+    expect(createLectureSchema.parse({ ...input, customPrompt: " \n " }).customPrompt).toBe("");
+    expect(createLectureSchema.parse({ ...input, customPrompt: "  첨부 슬라이드의 38–48페이지 위주로 보기  " }).customPrompt).toBe("첨부 슬라이드의 38–48페이지 위주로 보기");
+    expect(createLectureSchema.safeParse({ ...input, customPrompt: "가".repeat(2000) }).success).toBe(true);
+    expect(createLectureSchema.safeParse({ ...input, customPrompt: "가".repeat(2001) }).success).toBe(false);
+    expect(createLectureSchema.safeParse({ ...input, customPrompt: 123 }).success).toBe(false);
+  });
+  it("accepts MP3 with optional slides but rejects mixed media, wrong MIME and oversized audio", () => {
+    const audio = { fileName: "class.MP3", contentType: "audio/mpeg", fileSize: 100 };
+    expect(createLectureSchema.safeParse({ title: "Class", audio }).success).toBe(true);
+    expect(createLectureSchema.safeParse({ title: "Class", audio, slides: { fileName: "a.pdf", contentType: SLIDE_TYPES.pdf, fileSize: 100 } }).success).toBe(true);
+    expect(createLectureSchema.safeParse({ title: "Class", audio, video: { fileName: "a.mp4", contentType: "video/mp4", fileSize: 100 } }).success).toBe(false);
+    for (const invalid of [{ ...audio, contentType: "video/mp4" }, { ...audio, fileName: "a.wav" }, { ...audio, fileSize: 500 * 1024 ** 2 + 1 }, { ...audio, fileSize: 0 }]) {
+      expect(createLectureSchema.safeParse({ title: "Class", audio: invalid }).success).toBe(false);
+    }
+  });
   it("accepts PPTX/PDF and rejects oversized decks and incompatible extensions", () => {
     const value = { title: "Course", video: { fileName: "a.mp4", fileSize: 100, contentType: "video/mp4" }, slides: { fileName: "a.pdf", fileSize: 100, contentType: SLIDE_TYPES.pdf } };
     expect(createLectureSchema.safeParse(value).success).toBe(true);
@@ -37,6 +65,29 @@ describe("lecture inputs", () => {
     expect(() => validateParts(20 * 1024 * 1024, [{ partNumber: 2, etag: "y" }, { partNumber: 1, etag: "x" }])).not.toThrow();
     expect(completeLectureUploadSchema.safeParse({ asset: "script" }).success).toBe(false);
   });
+});
+
+it("signs only the source images belonging to the published learning groups", async () => {
+  mocks.sign.mockImplementation(async (key: string) => `signed:${key}`);
+  mocks.get.mockResolvedValue({ ...fixture(), status: "COMPLETED", pageCount: 1, documentKey: "lecture-results/test/runs/current/document.json",
+    studyImages: [{ page: 1, sourcePage: 38, key: "lecture-results/test/runs/current/source-slides/38.png" },
+      { page: 1, sourcePage: 39, key: "lecture-results/test/runs/current/source-slides/39.png" }] });
+  const result = await lectureResult(caller, "test");
+  expect(result.pageImages.map((i) => i.sourcePage)).toEqual([38, 39]);
+  expect(result.pageImages.every((i) => i.page === 1 && i.url.includes("/runs/current/"))).toBe(true);
+  expect(result.lecture).not.toHaveProperty("studyImages");
+});
+
+it("persists an optional study request in the owned lecture and returns it on result reads", async () => {
+  mocks.multipart.mockResolvedValue({ uploadId: "audio", parts: [], partSize: 16, expiresAt: "later" });
+  const result = await createLecture(caller, createLectureSchema.parse({ title: "Focused study",
+    customPrompt: "  38–48페이지를 먼저 복습하고 수식을 쉽게 설명해 주세요.  ",
+    audio: { fileName: "a.mp3", contentType: "audio/mpeg", fileSize: 100 } }));
+  const record = mocks.claim.mock.calls[0]![2].Put.Item as LectureRecord;
+  expect(record.customPrompt).toBe("38–48페이지를 먼저 복습하고 수식을 쉽게 설명해 주세요.");
+  expect(result.lecture.customPrompt).toBe(record.customPrompt);
+  mocks.get.mockResolvedValue(record);
+  expect((await lectureResult(caller, record.lectureId)).lecture.customPrompt).toBe(record.customPrompt);
 });
 
 it("rejects cross-user reads, downloads, starts, uploads and deletion before any write", async () => {
@@ -110,6 +161,7 @@ it("creates and starts a video-only lecture without requiring a slide upload", a
   mocks.list.mockResolvedValue({ items: [], cursor: null });
   mocks.multipart.mockResolvedValue({ uploadId: "video", parts: [], partSize: 16 * 1024 * 1024, expiresAt: "later" });
   const result = await createLecture(caller, createLectureSchema.parse({ title: "ML video", video: { fileName: "class.mp4", fileSize: 2 * 1024 ** 3, contentType: "video/mp4" } }));
+  expect(result.lecture.customPrompt).toBeUndefined();
   expect(mocks.multipart).toHaveBeenCalledOnce();
   expect(result.uploads.slides).toBeUndefined();
   expect(result.lecture.videoName).toBe("class.mp4");
@@ -118,6 +170,39 @@ it("creates and starts a video-only lecture without requiring a slide upload", a
   mocks.get.mockResolvedValue(record);
   await expect(startLecture(caller, record.lectureId)).resolves.toEqual({ lectureId: record.lectureId });
   expect(mocks.start).toHaveBeenCalledOnce();
+});
+
+it("completes and starts audio alone, signs audio without nonexistent slide previews", async () => {
+  mocks.multipart.mockResolvedValue({ uploadId: "audio", parts: [], partSize: 16 * 1024 * 1024, expiresAt: "later" });
+  const result = await createLecture(caller, createLectureSchema.parse({ title: "Audio", audio: { fileName: "class.mp3", fileSize: 100, contentType: "audio/mpeg" } }));
+  expect(result.uploads.audio?.uploadId).toBe("audio");
+  expect(result.uploads.video).toBeUndefined();
+  expect(result.lecture.audioName).toBe("class.mp3");
+  const record = mocks.claim.mock.calls[0]![2].Put.Item as LectureRecord;
+  mocks.get.mockResolvedValue(record);
+  await expect(startLecture(caller, record.lectureId)).rejects.toMatchObject({ code: "uploads_incomplete" });
+  mocks.s3.mockResolvedValue({ ContentLength: 100, ContentType: "audio/mpeg", ETag: "verified" });
+  await completeLectureUpload(caller, record.lectureId, { asset: "audio", uploadId: "audio", parts: [{ partNumber: 1, etag: "part" }] });
+  expect(mocks.ddb.mock.calls.at(-1)![0].input.ExpressionAttributeNames["#asset"]).toBe("audio");
+  record.assets.audio!.complete = true;
+  await startLecture(caller, record.lectureId);
+  expect(mocks.start).toHaveBeenCalledOnce();
+  mocks.sign.mockImplementation(async (key: string) => `https://example.org/${key}`);
+  record.documentKey = "lecture-results/test/document.json"; record.pageCount = 2;
+  record.transcriptKey = "lecture-results/test/transcript.json";
+  const links = await lectureResult(caller, record.lectureId);
+  expect(links.audioUrl).toContain("/audio.mp3");
+  expect(links.videoUrl).toBeNull();
+  expect(links.pageImages).toEqual([]);
+  expect(links.transcriptUrl).toContain("/transcript.json");
+});
+
+it("aborts MP3 and slide uploads when the processing-slot claim fails", async () => {
+  mocks.multipart.mockResolvedValueOnce({ uploadId: "audio" }).mockResolvedValueOnce({ uploadId: "slides" });
+  mocks.claim.mockRejectedValueOnce(new LectureLimitError(3));
+  await expect(createLecture(caller, createLectureSchema.parse({ title: "Audio", audio: { fileName: "a.mp3", contentType: "audio/mpeg", fileSize: 100 }, slides: { fileName: "a.pdf", contentType: SLIDE_TYPES.pdf, fileSize: 100 } }))).rejects.toBeInstanceOf(LectureLimitError);
+  expect(mocks.abort).toHaveBeenCalledWith(expect.stringMatching(/\/audio.mp3$/), "audio");
+  expect(mocks.abort).toHaveBeenCalledWith(expect.stringMatching(/\/slides.pdf$/), "slides");
 });
 
 describe("processing slots", () => {

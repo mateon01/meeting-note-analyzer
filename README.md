@@ -1,6 +1,6 @@
 # Meeting Note Analyzer
 
-Meeting Note Analyzer turns meeting recordings and lecture videos into notes you can review and search. It runs in your AWS account, with a React web app, Cognito login, SageMaker transcription, and analysis on Amazon Bedrock AgentCore.
+Meeting Note Analyzer turns meeting recordings and lecture videos or audio into notes you can review and search. It runs in your AWS account, with a React web app, Cognito login, SageMaker transcription, and analysis on Amazon Bedrock AgentCore.
 
 The app uses the CloudFront URL created during deployment, with HTTPS provided by CloudFront's default certificate. You do not need to register a domain, configure Route 53, provision your own certificate, or set up Google OAuth. Administrators create Cognito accounts; users sign in with their email address and password.
 
@@ -10,7 +10,10 @@ The app uses the CloudFront URL created during deployment, with HTTPS provided b
 - **Speaker review:** contextual corrections are checked against transcript evidence. Uncertain changes keep the original speaker and are marked for review. Compare the original and corrected transcripts or play the supporting speech. See [speaker review](docs/speaker-review.md).
 - **Meeting editing:** change a meeting title while analysis is running or after it finishes. Title and participant-name edits are coordinated with final document publication so concurrent saves preserve new results.
 - **Short meeting brief:** a separate recap of the outcome, decisions and their reasoning, action items, and unresolved questions. Decision explanations include transcript evidence when available.
-- **Lecture study:** upload an MP4, optionally with a PPTX or PDF. The pipeline connects screen content with spoken explanations, groups video sections into chapter and topic pages, and generates notes, questions, flashcards, and reference links. Pages in the same chapter share paper recommendations.
+- **Lecture study:** select MP4 video or MP3 audio, optionally with a PPTX or PDF. The pipeline connects slides with spoken explanations, or organizes recordings without slides into topics. Notes include plain-language theory, mathematical notation, derivations, examples, and explicit source corrections or uncertainties.
+- **Lecture PDF:** save all study sections, rendered formulas, questions and answers from the browser print dialog. Lecture access remains restricted to the owner; PDF export does not create a public page or include signed media download links.
+- **Transcript downloads:** export the full selected transcript as UTF-8 TXT or Markdown with timestamps and speakers. Meetings offer original and speaker-corrected versions when available; lectures offer their original STT transcript.
+- **Interview notes:** upload MP3 with an optional PDF resume. Select Technical Fit/Leadership Principles and L4–L7, then download questions, follow-ups, candidate answers, hints, and grounded rating drafts as Markdown. Resume gaps are linked to the relevant interview evidence; untested claims remain unrated.
 - **Lecture recovery:** temporary model-service failures are retried automatically. A retried phase reuses cached scene and page analysis. See [retry behavior](docs/operations.md#lecture-retries).
 - **Lecture playback:** a playing lecture docks into a small player when its original position scrolls out of view. Long meeting and lecture titles wrap within the page.
 - **Paper search:** lecture references are retrieved through the AgentCore Web Search MCP connector and Gateway.
@@ -26,33 +29,37 @@ Expired sessions are renewed in the background when a refresh token is available
 | Use | Required input | Optional attachment | Limits |
 | --- | --- | --- | --- |
 | Meeting | MP3 | None | 500 MiB, up to 4 hours |
-| Lecture | MP4 | PPTX or PDF | Video: 4 GiB, up to 4 hours and 4K. Slides: 100 MiB, up to 120 pages. |
+| Lecture | MP4 or MP3 | PPTX or PDF | Video: 4 GiB, up to 4 hours and 4K. Audio: 500 MiB, up to 4 hours. Slides: 100 MiB, up to 120 pages. |
+| Interview | MP3 | PDF resume | Audio: 500 MiB, up to 4 hours. Resume: 20 MiB, up to 20 pages. |
 
 For lecture playback, use a browser-compatible MP4 encoding such as H.264/AAC. See [lecture study](docs/lecture-study.md) for screen matching and research limits.
 
 ## Architecture
 
-```mermaid
-flowchart LR
-    User[Browser] --> CF[CloudFront]
-    User <--> Auth[Cognito managed login]
-    CF --> Site[Private S3 web assets]
-    CF --> API[API Gateway and Lambda]
-    CF --> Relay[Chat streaming Lambda]
-    CF -->|Signed uploads| Files[S3 recordings and results]
-    User -->|Signed downloads| Files
-    API --> DB[DynamoDB]
-    Files -->|Completed MP3 uploads| Events[EventBridge]
-    Events --> Workflow[Step Functions]
-    API -->|Start or retry processing| Workflow
-    Workflow --> STT[SageMaker async STT]
-    Workflow --> Agents[AgentCore analysis runtimes]
-    Agents --> Bedrock[Bedrock models]
-    Agents --> Search[AgentCore Gateway and Web Search]
-    Relay --> Chat[AgentCore chat runtime]
-    Chat --> Bedrock
-    Chat --> KB[AgentCore Gateway and knowledge base]
-```
+![AWS architecture](docs/architecture.png)
+
+| Component | Role |
+| --- | --- |
+| Users (Browser PWA) | Upload recordings, slides, and resumes. Read results and chat with meetings. |
+| Amazon CloudFront | Single HTTPS entry point. Routes to web assets, `/api/*`, chat streaming, and presigned uploads. |
+| Amazon S3 (Web assets) | Private bucket that stores the built PWA. |
+| Amazon Cognito | Managed login. Issues the JWTs that API Gateway validates. |
+| Amazon API Gateway | HTTP API with a JWT authorizer in front of the API Lambdas. |
+| AWS Lambda (API) | Meeting, lecture, and interview APIs. Issues presigned URLs and starts or retries pipelines. |
+| Amazon DynamoDB | Metadata and status for meetings, lectures, interviews, chat sessions, and push subscriptions. |
+| Amazon S3 (Recordings, results) | Uploaded media plus transcripts, documents, and study results. |
+| Amazon EventBridge | Emits completed-upload events that start the meeting pipeline. |
+| AWS Step Functions | Meeting, lecture, and interview pipelines: transcribe, analyze, finalize. |
+| Amazon SageMaker | Async speech-to-text endpoint. Completion goes back to the pipeline through SNS. |
+| AgentCore Runtime (Analysis, lecture) | Containers that turn transcripts into meeting notes, lecture study guides, and interview reports. |
+| AgentCore Gateway (Web Search) | MCP tool that lets the analysis agents search the web. |
+| Amazon Bedrock | Claude models used by the analysis and chat runtimes. |
+| AWS Lambda (Chat stream relay) | Checks the user token and streams chat answers back as server-sent events. |
+| AgentCore Runtime (Chat + Memory) | Chat agent that keeps conversation memory. |
+| AgentCore Gateway (KB retrieve) | IAM-only MCP tool that queries the knowledge base with a per-user owner filter. |
+| Bedrock Knowledge Base | Indexes meeting and lecture markdown from S3 for search. |
+
+Source: [`docs/architecture.svg`](docs/architecture.svg), generated from [`docs/architecture.json`](docs/architecture.json).
 
 CDK defines separate stacks for storage, authentication, transcription, analysis, lectures, chat, orchestration, API, and web hosting. Local deployment settings and generated AWS identifiers are excluded from Git.
 
@@ -167,7 +174,8 @@ Open `http://localhost:5173`. Vite proxies `/api` to the configured CloudFront e
 - [Deployment](docs/deployment.md): first installation and required access
 - [Operations](docs/operations.md): updates, users, model changes, costs, and cleanup
 - [Meeting briefs](docs/meeting-brief.md): concise summaries and decision evidence
-- [Lecture study](docs/lecture-study.md): MP4 input, optional slides, limits, and search
+- [Lecture study](docs/lecture-study.md): MP4/MP3 input, optional slides, PDF export, limits, and search
+- [Interview notes](docs/interview-notes.md): optional resume context, Technical Fit/LP selection, target levels, evidence, and ratings
 - [Security](SECURITY.md): authentication, data handling, and reporting
 - [Dependency notes](docs/dependencies.md): external services, models, and build dependencies
 - [Public release review](docs/public-release-review.md): removed deployment details, checks, and validation limits

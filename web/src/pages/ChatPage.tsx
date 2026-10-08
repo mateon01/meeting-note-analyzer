@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "react-oidc-context";
-import type { ChatEvidence, ChatMessageDto, ChatStreamEvent } from "@meeting-notes/shared";
+import type { ChatEvidence, ChatMessageDto, ChatStreamEvent, CreateChatSessionRequest } from "@meeting-notes/shared";
+import { ChatScopePicker } from "../components/chat/ChatScopePicker";
 import { useApi } from "../lib/api";
 import { useConfig } from "../lib/use-config";
 import { streamChatTurn } from "../lib/chat-stream";
@@ -11,7 +12,7 @@ import { AnswerText } from "../components/chat/AnswerText";
 import { EvidencePanel } from "../components/chat/EvidencePanel";
 import { StepsTimeline, type LiveStep } from "../components/chat/StepsTimeline";
 import { IconAlert, IconChevronDown, IconChevronLeft, IconSend } from "../components/icons";
-import { InlineError, Pill, Skeleton } from "../components/ui";
+import { Button, InlineError, Pill, Skeleton } from "../components/ui";
 import { BetaBadge } from "./ChatListPage";
 
 /** A message as rendered: stored ones come from the API, the live one is built from stream events. */
@@ -36,6 +37,11 @@ export function ChatPage() {
   const auth = useAuth();
   const nav = useNavigate();
   const qc = useQueryClient();
+  const [pendingScope, setPendingScope] = useState<CreateChatSessionRequest | null>(null);
+  const switchScope = useMutation({
+    mutationFn: (scope: CreateChatSessionRequest) => api.createChatSession(scope),
+    onSuccess: ({ session }) => { setLive([]); setInput(""); setPendingScope(null); void qc.invalidateQueries({ queryKey: ["chat-sessions"] }); nav(`/chat/${session.sessionId}`); },
+  });
   const q = useQuery({ queryKey: ["chat", sessionId], queryFn: () => api.getChatMessages(sessionId), refetchOnWindowFocus: false });
   const [live, setLive] = useState<ViewMessage[]>([]);
   const [input, setInput] = useState("");
@@ -58,7 +64,7 @@ export function ChatPage() {
 
   async function send(text = input) {
     const message = text.trim();
-    if (!message || busy) return;
+    if (!message || busy || pendingScope) return;
     setInput("");
     setBusy(true);
     follow(); // sending always brings the conversation back to the bottom
@@ -124,7 +130,17 @@ export function ChatPage() {
         <button className="tap -ml-1 inline-flex h-9 items-center gap-0.5 pr-2 text-[15px] text-accent" onClick={() => nav("/chat")}><IconChevronLeft size={20} />대화</button>
         <BetaBadge />
         {session?.meetingId && <Pill tone="accent" dot>이 회의로 제한</Pill>}
+        {session?.lectureId && <Pill tone="accent" dot>이 강의로 제한</Pill>}
       </div>
+      {session && <div className="mt-3 rounded-xl border border-line p-3">
+        <ChatScopePicker value={pendingScope ?? { sourceType: session.sourceType ?? (session.meetingId ? "meeting" : session.lectureId ? "lecture" : "all"),
+          ...(session.meetingId ? { meetingId: session.meetingId } : {}), ...(session.lectureId ? { lectureId: session.lectureId } : {}) }}
+          disabled={busy || switchScope.isPending} onChange={setPendingScope} />
+        {pendingScope && <div className="mt-3 flex gap-2"><Button size="sm" loading={switchScope.isPending} onClick={() => switchScope.mutate(pendingScope)}>선택한 자료로 새 대화</Button>
+          <Button size="sm" variant="ghost" disabled={switchScope.isPending} onClick={() => setPendingScope(null)}>취소</Button></div>}
+        <p className="mt-2 text-xs text-ink-3">자료를 바꾸면 새 대화로 시작합니다.</p>
+        {switchScope.error && <InlineError>{switchScope.error.message}</InlineError>}
+      </div>}
       {q.isLoading && <div className="mt-4 space-y-3"><Skeleton className="h-16" /><Skeleton className="h-24" /></div>}
       {q.error && <InlineError>{String((q.error as Error).message)}</InlineError>}
 
@@ -132,8 +148,8 @@ export function ChatPage() {
         {q.data && messages.length === 0 && (
           <div className="rounded-2xl border border-line bg-surface p-4 text-[14px] leading-relaxed text-ink-2">
             <p className="font-semibold text-ink">무엇이든 물어보세요</p>
-            <p className="mt-1">예: 지난 회의에서 결제 모듈 타임아웃은 어떻게 결정되었나요? 이서현 님이 맡은 일은 무엇인가요?</p>
-            <p className="mt-2 text-[12.5px] text-ink-3">답변의 각 문장에는 근거 번호가 붙고, 아래 근거 카드에서 해당 회의록 구절과 전사 위치를 열 수 있습니다.</p>
+            <p className="mt-1">{session?.sourceType === "lecture" || session?.lectureId ? "예: 이 강의의 핵심 개념을 설명해 주세요. 이 수식은 왜 필요한가요? 두 개념의 차이는 무엇인가요?" : "예: 지난 회의에서 무엇이 결정되었나요? 이 강의의 수식을 쉽게 설명해 주세요."}</p>
+            <p className="mt-2 text-[12.5px] text-ink-3">답변에 붙은 근거 번호를 누르면 회의록·전사 또는 강의 학습 자료를 열 수 있습니다.</p>
           </div>
         )}
         {messages.map((m, i) => (m.role === "user" ? <UserBubble key={m.key} text={m.text} /> : <AssistantBlock key={m.key} m={m} activeEvidence={highlight?.startsWith(`${m.key}:`) ? highlight.slice(m.key.length + 1) : null} onRef={(id) => focusEvidence(id, m.key)} onPick={i === messages.length - 1 && !busy ? (o) => void send(o) : undefined} />))}
@@ -163,12 +179,12 @@ export function ChatPage() {
             }}
             rows={1}
             onFocus={() => setTimeout(() => { if (!away) scrollToBottom(); }, 500)}
-            placeholder={session?.meetingId ? "이 회의에 대해 질문" : "회의에 대해 질문"}
+            placeholder={session?.sourceType === "lecture" || session?.lectureId ? "강의 내용에 대해 질문" : session?.meetingId ? "이 회의에 대해 질문" : "선택한 자료에 대해 질문"}
             className="max-h-32 min-h-[44px] flex-1 resize-none rounded-xl border border-line-2 bg-surface-2 px-3.5 py-2.5 text-[15px] leading-relaxed outline-none placeholder:text-ink-3 focus:border-accent"
           />
-          <button type="submit" disabled={busy || !input.trim()} aria-label="보내기" className="tap grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-accent text-white shadow-glow disabled:opacity-40"><IconSend size={20} /></button>
+          <button type="submit" disabled={busy || !!pendingScope || !input.trim()} aria-label="보내기" className="tap grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-accent text-white shadow-glow disabled:opacity-40"><IconSend size={20} /></button>
         </form>
-        <p className="mt-1.5 text-[11px] text-ink-3">베타: 답변은 회의록과 전사 내용에 근거하며, 확인되지 않은 내용은 그렇게 표시됩니다.</p>
+        <p className="mt-1.5 text-[11px] text-ink-3">선택한 회의록·전사 또는 강의를 근거로 답합니다.</p>
       </div>
     </div>
   );

@@ -20,10 +20,17 @@ def select_history(messages: list[dict[str, Any]], budget_chars: int = CONTEXT_B
     return kept, len(messages) - len(kept)
 
 
-def build_turn_prompt(*, question: str, history: list[dict[str, Any]], summary: str | None, facts: list[str], meeting_scope: dict[str, Any] | None, language: str) -> str:
+def build_turn_prompt(*, question: str, history: list[dict[str, Any]], summary: str | None, facts: list[str], meeting_scope: dict[str, Any] | None, language: str, lecture_scope=None, source_type="all") -> str:
     lines = ["# 사용자 질문에 답하라", ""]
     if meeting_scope:
         lines += ["## 검색 범위", f"이 대화는 회의 \"{meeting_scope.get('title')}\" (meetingId {meeting_scope.get('meetingId')})에 고정되어 있다. search_meetings는 이 회의로 제한된다.", ""]
+    elif lecture_scope:
+        lines += ["## 검색 범위", f"이 대화는 강의 \"{lecture_scope.get('title')}\" (lectureId {lecture_scope.get('lectureId')})에 고정되어 있다. "
+                  "먼저 get_lecture로 현재 목차를 열고 필요한 학습 묶음을 읽어라. 그룹의 page는 학습 묶음 번호이고 sourcePages가 원본 장표 번호다. "
+                  "자료에 없는 페이지를 분석했다고 말하지 말라. 회의 자료는 사용하지 말라.", ""]
+    elif source_type != "all":
+        lines += ["## 검색 범위", "이 대화는 강의 자료만 사용한다. list_lectures/get_lecture로 현재 강의 자료도 직접 확인하라."
+                  if source_type == "lecture" else "이 대화는 회의록과 회의 전사만 사용한다. 강의 자료는 사용하지 말라.", ""]
     lines += ["## 이전 대화 요약", summary or "없음", ""]
     if history:
         lines += ["## 최근 대화"]

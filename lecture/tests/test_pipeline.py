@@ -6,6 +6,7 @@ import pymupdf
 from lecture_study.pipeline import analyze
 from lecture_study.schemas import Alignment, Audience, Overview, Papers, SlideReading, Study, VideoObservation, VideoOutline
 from lecture_study.export import flashcard_csv
+from lecture_study.deck_scope import DeckPlan, DeckScope
 
 
 class FakeStore:
@@ -38,12 +39,17 @@ class FakeModel:
 
     def __init__(self): self.calls, self.inputs = [], []
     def check(self): pass
-    def generate(self, schema, task, data, image=None, validate=None, images=None):
+    def generate(self, schema, task, data, image=None, validate=None, images=None, **kwargs):
         self.calls.append(schema); self.inputs.append((schema, copy.deepcopy(data)))
         if schema == SlideReading: value = {"title": f"Page {data['page']}", "description": "Gradient descent", "concepts": ["Gradient"]}
         elif schema == VideoObservation: value = {"title": "Page 1", "description": "Gradient descent on screen", "concepts": ["Gradient"], "visualType": "slide"}
         elif schema == Alignment: value = {"assignments": [{"page": 1, "startSegmentId": "seg-1", "endSegmentId": "seg-1", "confidence": 0.9, "reason": "The weight update matches this slide"}]}
         elif schema == Audience: value = self.AUDIENCE
+        elif schema == DeckScope:
+            selected = [p for p in (1, 2) if f"{p}페이지" in data["request"]]
+            value = {"mode": "selected" if selected else "all", "pages": selected}
+        elif schema == DeckPlan:
+            value = {"groups": [{"title": s["title"], "pages": [s["page"]], "depth": "standard"} for s in data["slides"]]}
         elif schema == Study: value = {**self.STUDY, "searchQueries": [f"gradient optimization research paper {data['reading'].get('page', 1)}"]}
         elif schema == Papers: value = {"papers": [{"sourceId": 0, "relevance": "Optimization methods", "readingFocus": "Algorithm"}]}
         elif schema == VideoOutline: value = {"chapters": [{"title": "Optimization", "topics": [{"title": "Gradient descent", "startSec": data["windowStart"], "endSec": data["windowEnd"], "summary": "One topic spans the window"}]}]}

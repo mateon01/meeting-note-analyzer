@@ -52,6 +52,7 @@ const api = new ApiStack(app, `${prefix}-Api`, {
   config,
   dataBucket: data.dataBucket,
   table: data.table,
+  lectureTable: lecture.table,
   issuerUrl: auth.issuerUrl,
   userPoolClientId: auth.userPoolClient.userPoolClientId,
   stateMachineArn: pipeline.stateMachine.stateMachineArn,
@@ -60,6 +61,8 @@ const api = new ApiStack(app, `${prefix}-Api`, {
   chatMemoryId: chat.chatMemoryId,
   chatMemoryArn: chat.chatMemoryArn,
   lectureApiFunction: lecture.apiFunction,
+  interviewApiFunction: lecture.interviewApiFunction,
+  guestApiFunction: lecture.guestApiFunction,
 });
 new WebStack(app, `${prefix}-Web`, {
   env,
@@ -69,6 +72,7 @@ new WebStack(app, `${prefix}-Web`, {
   userPoolId: auth.userPool.userPoolId,
   userPoolClientId: auth.userPoolClient.userPoolClientId,
   chatRuntimeArn: chat.chatRuntimeArn,
+  chatRuntimeVersion: chat.chatRuntimeVersion,
   alarmTopic: data.alarmTopic,
   dataBucket: data.dataBucket,
   webConfig: {

@@ -63,14 +63,18 @@ export const handler = awslambda.streamifyResponse(async (event, responseStream)
   // The runtime re-checks ownership, but rejecting foreign session ids here keeps them from ever reaching it.
   const session = await getOwnedChatSession(sub, req.sessionId);
   if (!session) return endWithError(responseStream, 404, "chat session not found");
+  if (req.meetingId && req.meetingId !== session.meetingId) return endWithError(responseStream, 400, "대상을 바꾸려면 새 대화를 시작하세요");
 
   const out = awslambda.HttpResponseStream.from(responseStream, { statusCode: 200, headers: SSE_HEADERS });
-  const payload = { sub, sessionId: req.sessionId, message: req.message, meetingId: req.meetingId ?? session.meetingId, language: req.language ?? "ko" };
+  const payload = { sub, sessionId: req.sessionId, message: req.message, meetingId: session.meetingId, lectureId: session.lectureId,
+    sourceType: session.sourceType ?? (session.meetingId ? "meeting" : "all"), language: req.language ?? "ko" };
   try {
     const res = await agentcore.send(
       new InvokeAgentRuntimeCommand({
         agentRuntimeArn: runtimeArn,
-        runtimeSessionId: `chat-${req.sessionId}`, // >= 33 chars; one AgentCore session per chat session
+        // Keep stored conversation history, but do not reuse a container running
+        // old tool definitions after a runtime deployment.
+        runtimeSessionId: `chat-${req.sessionId}-v${process.env["CHAT_RUNTIME_VERSION"] ?? "1"}`,
         runtimeUserId: sub,
         contentType: "application/json",
         accept: "text/event-stream",

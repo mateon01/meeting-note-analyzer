@@ -2,12 +2,12 @@ import { InvokeAgentRuntimeCommand, BedrockAgentCoreClient } from "@aws-sdk/clie
 import { DeleteObjectsCommand, GetObjectCommand, HeadObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import { SFNClient, SendTaskSuccessCommand } from "@aws-sdk/client-sfn";
 import { deletePrefix, env, getLecture, lectureKbMetadata, notifyUser, readJson, releaseLectureSlot, requireEnv, s3, updateLectureRun } from "@meeting-notes/backend";
-import { lectureKeys, lectureUploadsComplete, sttOutputSchema, type Transcript } from "@meeting-notes/shared";
+import { lectureKeys, lectureUploadsComplete, sttOutputSchema, type Transcript, type LectureRecord } from "@meeting-notes/shared";
 import { handler as startStt } from "./start-transcription.js";
 import { normalize } from "./normalize-transcript.js";
 import { parseS3Uri } from "../lib/s3-uri.js";
 
-interface Input { op: "register" | "prepare" | "transcribe" | "normalize" | "analyze" | "complete" | "failed"; lectureId: string; runId: string; taskToken?: string; attempt?: number; stt?: { skipped?: boolean; silent?: boolean; outputLocation?: string }; result?: { documentKey: string; markdownKey: string; flashcardsKey: string; researchFailures: number; pageCount: number }; error?: unknown }
+interface Input { op: "register" | "prepare" | "transcribe" | "normalize" | "analyze" | "complete" | "failed"; lectureId: string; runId: string; taskToken?: string; attempt?: number; stt?: { skipped?: boolean; silent?: boolean; outputLocation?: string }; result?: { documentKey: string; markdownKey: string; flashcardsKey: string; researchFailures: number; pageCount: number; selectedPages?: number[]; originalPageCount?: number; studyImages?: LectureRecord["studyImages"] }; error?: unknown }
 const agent = new BedrockAgentCoreClient({});
 const sfn = new SFNClient({});
 
@@ -75,6 +75,8 @@ export const handler = async (input: Input) => {
       const runPrefix = lectureKeys.runPrefix(input.lectureId, input.runId);
       const result = input.result;
       if (!result || result.documentKey !== `${runPrefix}document.json` || result.markdownKey !== `${runPrefix}study.md` || result.flashcardsKey !== `${runPrefix}flashcards.csv`) throw new Error("Lecture result files are not under this run");
+      if (result.studyImages?.some((image) => image.key !== `${runPrefix}source-slides/${image.sourcePage}.png` ||
+          !result.selectedPages?.includes(image.sourcePage) || image.page < 1 || image.page > result.pageCount)) throw new Error("Lecture source images are outside this result scope");
       const doc = await readJson(result.documentKey);
       if (!doc) throw new Error("Lecture document missing");
       await s3.send(new PutObjectCommand({ Bucket: env.dataBucket, Key: `${result.markdownKey}.metadata.json`, Body: lectureKbMetadata(rec, doc as Parameters<typeof lectureKbMetadata>[1]), ContentType: "application/json" }));

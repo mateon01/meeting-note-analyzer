@@ -9,6 +9,7 @@ from lecture_study.pipeline import analyze
 from lecture_study.prompts import STUDY_CACHE_VERSION
 from lecture_study.schemas import Audience, Question, Study
 from lecture_study.video_analysis import make_study
+from lecture_study.study import validate_references
 from test_pipeline import FakeModel, FakeSearch, FakeStore
 
 
@@ -48,7 +49,8 @@ def test_study_cache_is_versioned_with_the_prompt(tmp_path):
     store.values[store.prefix + "cache/study-1.json"] = {**FakeModel.STUDY, "searchQueries": []}  # written by an older prompt version
     run(store, model, tmp_path)
     assert model.calls.count(Study) == 1
-    assert store.values[store.prefix + f"cache/study-1.{STUDY_CACHE_VERSION}.json"]["mathNotes"] == FakeModel.STUDY["mathNotes"]
+    current = next(v for k, v in store.values.items() if "grouped-" in k and k.endswith(f"-study-0.{STUDY_CACHE_VERSION}.json"))
+    assert current["mathNotes"] == Study.model_validate({**FakeModel.STUDY, "searchQueries": []}).model_dump()["mathNotes"]
     model = FakeModel()
     run(store, model, tmp_path)
     assert model.calls.count(Study) == 0  # the entry for the current prompt version is reused
@@ -102,7 +104,7 @@ def test_video_analysis_infers_audience_before_study(tmp_path):
     assert [s["title"] for s in audience_input["sections"]] == ["Page 1"]
     assert audience_input["openingSpeech"][0]["text"] == "We update the weights using the gradient."
     assert store.values[store.prefix + "runs/run-1/document.json"]["audience"] == FakeModel.AUDIENCE
-    assert store.prefix + "cache/topic-study-0.v1.json" in store.values  # video sections are topic pages now
+    assert store.prefix + f"cache/topic-study-0.{STUDY_CACHE_VERSION}.json" in store.values  # video sections are topic pages now
 
 
 def test_results_are_written_under_the_run_and_returned_as_keys(tmp_path):
@@ -111,5 +113,40 @@ def test_results_are_written_under_the_run_and_returned_as_keys(tmp_path):
     assert result["documentKey"] == store.prefix + "runs/run-1/document.json"
     assert result["markdownKey"] == store.prefix + "runs/run-1/study.md"
     assert result["flashcardsKey"] == store.prefix + "runs/run-1/flashcards.csv"
-    assert set(store.files) >= {"runs/run-1/study.md", "runs/run-1/flashcards.csv", "slides/1.png"}
+    assert set(store.files) >= {"runs/run-1/study.md", "runs/run-1/flashcards.csv", "runs/run-1/source-slides/1.png"}
     assert "study.md" not in store.files and store.prefix + "document.json" not in store.values  # nothing is overwritten in place
+
+
+def test_source_context_carries_prior_definitions_and_exports_explicit_sign_corrections(tmp_path):
+    store = FakeStore(make_deck(tmp_path))
+    store.rec["assets"]["slides"]["fileName"] = "2 Fundamentals.pdf"
+    class Model(FakeModel):
+        def generate(self, schema, task, data, **kwargs):
+            value = super().generate(schema, task, data, **kwargs)
+            if schema == Study:
+                assert data["sourceContext"]["fileName"] == "2 Fundamentals.pdf"
+                assert [p["page"] for p in data["sourceContext"]["pages"]] == [1, 2]
+                assert data["sourceContext"]["pages"][0]["text"].strip() == "Optimization 1"
+                assert "Never silently rewrite the original" in task
+                value.mathNotes[0] = type(value.mathNotes[0]).model_validate({
+                    "kind": "formula", "name": "Delta rule", "statement": "$\\delta=+\\partial E/\\partial s$",
+                    "symbols": [{"symbol": "$r$", "meaning": "Target"}, {"symbol": "$y$", "meaning": "Linear neuron output"}],
+                    "assumptions": ["$E=\\frac12(r-y)^2$", "$y=s$"],
+                    "sourceCheck": {"status": "corrected", "explanation": "With $\\delta=r-y$, the derivative has the opposite sign.", "correctedStatement": "$\\delta=-\\partial E/\\partial s$"},
+                    "steps": ["$\\partial E/\\partial s=y-r$", "$w_j\\leftarrow w_j+\\eta\\delta x_j$"], "intuition": "Reduce the prediction error", "supplementary": True,
+                })
+            return value
+    run(store, Model(), tmp_path)
+    text = store.files["runs/run-1/study.md"].decode()
+    assert "원본: 2 Fundamentals.pdf" in text
+    assert "$\\delta=+\\partial E/\\partial s$" in text
+    assert "원본 오류 수정" in text and "수정식: $\\delta=-\\partial E/\\partial s$" in text
+    assert "Target" in text and "전제:" in text
+
+
+def test_source_references_cannot_point_to_unprovided_pages():
+    import pytest
+    value = Study.model_validate({**FakeModel.STUDY, "searchQueries": [], "relatedPages": [{"page": 43, "topic": "Delta rule"}]})
+    with pytest.raises(ValueError, match="supplied"):
+        validate_references(value, {"pages": [{"page": 1}]})
+    validate_references(value, {"pages": [{"page": 43}]})

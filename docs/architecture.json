@@ -1,0 +1,320 @@
+{
+  "title": "Meeting Note Analyzer",
+  "subtitle": "Serverless PWA, Step Functions pipelines, SageMaker STT, Bedrock AgentCore",
+  "theme": "light",
+  "size": "wide",
+  "nodes": [
+    {
+      "id": "users",
+      "service": "users",
+      "label": "Users",
+      "sublabel": "Browser PWA",
+      "x": 0,
+      "y": 1
+    },
+    {
+      "id": "s3web",
+      "service": "s3",
+      "label": "Amazon S3",
+      "sublabel": "Web assets",
+      "x": 1,
+      "y": 0,
+      "container": "cloud"
+    },
+    {
+      "id": "cf",
+      "service": "cloudfront",
+      "label": "Amazon\nCloudFront",
+      "x": 1,
+      "y": 1,
+      "container": "cloud"
+    },
+    {
+      "id": "chatfn",
+      "service": "lambda",
+      "label": "AWS Lambda",
+      "sublabel": "Chat stream relay",
+      "x": 1,
+      "y": 3,
+      "container": "cloud"
+    },
+    {
+      "id": "cognito",
+      "service": "cognito",
+      "label": "Amazon Cognito",
+      "sublabel": "Managed login",
+      "x": 2,
+      "y": 0,
+      "container": "cloud"
+    },
+    {
+      "id": "apigw",
+      "service": "api-gateway",
+      "label": "Amazon API\nGateway",
+      "sublabel": "HTTP API",
+      "x": 2,
+      "y": 1,
+      "container": "cloud"
+    },
+    {
+      "id": "ddb",
+      "service": "dynamodb",
+      "label": "Amazon\nDynamoDB",
+      "sublabel": "Metadata",
+      "x": 3,
+      "y": 0,
+      "container": "cloud"
+    },
+    {
+      "id": "apifn",
+      "service": "lambda",
+      "label": "AWS Lambda",
+      "sublabel": "Meeting, lecture, interview API",
+      "x": 3,
+      "y": 1,
+      "container": "cloud"
+    },
+    {
+      "id": "s3data",
+      "service": "s3",
+      "label": "Amazon S3",
+      "sublabel": "Recordings, results",
+      "x": 3,
+      "y": 2,
+      "container": "cloud"
+    },
+    {
+      "id": "sagemaker",
+      "service": "sagemaker",
+      "label": "Amazon SageMaker",
+      "sublabel": "Async STT + SNS",
+      "x": 5,
+      "y": 0,
+      "container": "cloud"
+    },
+    {
+      "id": "sfn",
+      "service": "step-functions",
+      "label": "AWS Step\nFunctions",
+      "sublabel": "Processing pipelines",
+      "x": 5,
+      "y": 1,
+      "container": "cloud"
+    },
+    {
+      "id": "eb",
+      "service": "eventbridge",
+      "label": "Amazon\nEventBridge",
+      "sublabel": "Upload events",
+      "x": 5,
+      "y": 2,
+      "container": "cloud"
+    },
+    {
+      "id": "analysis",
+      "service": "bedrock-agentcore",
+      "label": "AgentCore Runtime",
+      "sublabel": "Analysis, lecture",
+      "x": 7,
+      "y": 1,
+      "container": "cloud"
+    },
+    {
+      "id": "search",
+      "service": "bedrock-agentcore",
+      "label": "AgentCore Gateway",
+      "sublabel": "Web Search",
+      "x": 9,
+      "y": 1,
+      "container": "cloud"
+    },
+    {
+      "id": "bedrock",
+      "service": "bedrock",
+      "label": "Amazon Bedrock",
+      "sublabel": "Claude models",
+      "x": 7,
+      "y": 2,
+      "container": "cloud"
+    },
+    {
+      "id": "chat",
+      "service": "bedrock-agentcore",
+      "label": "AgentCore Runtime",
+      "sublabel": "Chat + Memory",
+      "x": 7,
+      "y": 3,
+      "container": "cloud"
+    },
+    {
+      "id": "kbgw",
+      "service": "bedrock-agentcore",
+      "label": "AgentCore Gateway",
+      "sublabel": "KB retrieve",
+      "x": 8,
+      "y": 3,
+      "container": "cloud"
+    },
+    {
+      "id": "kb",
+      "service": "bedrock",
+      "label": "Bedrock\nKnowledge Base",
+      "sublabel": "Meeting search",
+      "x": 9,
+      "y": 3,
+      "container": "cloud"
+    }
+  ],
+  "connections": [
+    {
+      "source": "users",
+      "target": "cf",
+      "label": "HTTPS"
+    },
+    {
+      "source": "cf",
+      "target": "s3web",
+      "source_port": "top",
+      "target_port": "bottom"
+    },
+    {
+      "source": "cf",
+      "target": "apigw",
+      "label": "/api/*",
+      "source_port": "right",
+      "target_port": "left"
+    },
+    {
+      "source": "cf",
+      "target": "chatfn",
+      "label": "SSE",
+      "source_port": "bottom",
+      "target_port": "top"
+    },
+    {
+      "source": "apigw",
+      "target": "cognito",
+      "label": "JWT",
+      "style": "dashed",
+      "source_port": "top",
+      "target_port": "bottom"
+    },
+    {
+      "source": "apigw",
+      "target": "apifn",
+      "source_port": "right",
+      "target_port": "left"
+    },
+    {
+      "source": "apifn",
+      "target": "ddb",
+      "source_port": "top",
+      "target_port": "bottom"
+    },
+    {
+      "source": "apifn",
+      "target": "s3data",
+      "label": "Presign",
+      "source_port": "bottom",
+      "target_port": "top"
+    },
+    {
+      "source": "apifn",
+      "target": "sfn",
+      "label": "Start",
+      "source_port": "right",
+      "target_port": "left"
+    },
+    {
+      "source": "s3data",
+      "target": "eb",
+      "style": "dashed",
+      "source_port": "right",
+      "target_port": "left"
+    },
+    {
+      "source": "eb",
+      "target": "sfn",
+      "source_port": "top",
+      "target_port": "bottom"
+    },
+    {
+      "source": "sfn",
+      "target": "sagemaker",
+      "label": "Transcribe",
+      "source_port": "top",
+      "target_port": "bottom"
+    },
+    {
+      "source": "sfn",
+      "target": "analysis",
+      "label": "Invoke",
+      "source_port": "right",
+      "target_port": "left"
+    },
+    {
+      "source": "analysis",
+      "target": "search",
+      "label": "MCP",
+      "source_port": "right",
+      "target_port": "left"
+    },
+    {
+      "source": "analysis",
+      "target": "bedrock",
+      "source_port": "bottom",
+      "target_port": "top"
+    },
+    {
+      "source": "chatfn",
+      "target": "chat",
+      "label": "Invoke (stream)",
+      "source_port": "right",
+      "target_port": "left"
+    },
+    {
+      "source": "chat",
+      "target": "bedrock",
+      "source_port": "top",
+      "target_port": "bottom"
+    },
+    {
+      "source": "chat",
+      "target": "kbgw",
+      "source_port": "right",
+      "target_port": "left"
+    },
+    {
+      "source": "kbgw",
+      "target": "kb",
+      "source_port": "right",
+      "target_port": "left"
+    }
+  ],
+  "containers": [
+    {
+      "id": "cloud",
+      "type": "aws-cloud",
+      "label": "AWS Cloud",
+      "children": [
+        "s3web",
+        "cf",
+        "chatfn",
+        "cognito",
+        "apigw",
+        "ddb",
+        "apifn",
+        "s3data",
+        "analysis",
+        "search",
+        "bedrock",
+        "chat",
+        "kbgw",
+        "kb",
+        "sagemaker",
+        "sfn",
+        "eb"
+      ]
+    }
+  ]
+}

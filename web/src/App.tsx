@@ -9,8 +9,11 @@ import { SettingsPage } from "./pages/SettingsPage";
 import { ChatListPage } from "./pages/ChatListPage";
 import { ChatPage } from "./pages/ChatPage";
 import { LecturesPage } from "./pages/LecturesPage";
+import { InterviewsPage } from "./pages/InterviewsPage";
 // KaTeX ships with the lecture page only; keep it out of the initial bundle.
 const LecturePage = lazy(() => import("./pages/LecturePage").then((m) => ({ default: m.LecturePage })));
+const InterviewPage = lazy(() => import("./pages/InterviewPage").then((m) => ({ default: m.InterviewPage })));
+const GuestLecturePage = lazy(() => import("./pages/GuestLecturePage").then((m) => ({ default: m.GuestLecturePage })));
 import { TabBar } from "./components/TabBar";
 import { Spinner } from "./components/icons";
 import { renewSession } from "./lib/auth-renew";
@@ -48,6 +51,9 @@ export function App() {
     setRenewal("running");
     void renewSession(auth.signinSilent).then((user) => setRenewal(user ? "done" : "failed"), () => setRenewal("failed"));
   }, [auth, stale, renewal]);
+  if (location.pathname.startsWith("/shared/lectures/")) {
+    return <Routes><Route path="/shared/lectures/:shareId" element={<Suspense fallback={<div className="grid min-h-dvh place-items-center"><Spinner /></div>}><GuestLecturePage /></Suspense>} /></Routes>;
+  }
   const restoring = stale && (renewal === "idle" || renewal === "running");
   // AuthProvider marks signinSilent as loading/navigation too. Keep the authenticated
   // component tree mounted during this background work so drafts, uploads and audio survive.
@@ -74,6 +80,9 @@ export function App() {
         <Route path="/lectures" element={<LecturesPage />} />
         <Route path="/lectures/new" element={<Navigate to="/upload?kind=lecture" replace />} />
         <Route path="/lectures/:id" element={<Suspense fallback={<div className="flex justify-center py-16"><Spinner /></div>}><LecturePage /></Suspense>} />
+        <Route path="/interviews" element={<InterviewsPage />} />
+        <Route path="/interviews/new" element={<Navigate to="/upload?kind=interview" replace />} />
+        <Route path="/interviews/:id" element={<Suspense fallback={<div className="flex justify-center py-16"><Spinner /></div>}><InterviewPage /></Suspense>} />
         <Route path="/meetings/:id" element={<MeetingPage />} />
         <Route path="/chat" element={<ChatListPage />} />
         <Route path="/chat/:sessionId" element={<ChatPage />} />

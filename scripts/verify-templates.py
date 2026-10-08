@@ -13,7 +13,7 @@ data_buckets = [resource["Properties"] for resource in data_resources if resourc
 assert len(data_buckets) == 1, "Expected one application data bucket"
 assert data_buckets[0]["VersioningConfiguration"]["Status"] == "Enabled"
 tables = [r["Properties"] for r in resources if r["Type"] == "AWS::DynamoDB::Table"]
-assert len(tables) == 2 and all(table.get("DeletionProtectionEnabled") for table in tables)
+assert len(tables) == 3 and all(table.get("DeletionProtectionEnabled") for table in tables)
 assert not any(r["Type"].startswith(("AWS::Route53::", "AWS::CertificateManager::")) for r in resources), "Unexpected custom domain dependency"
 clients = [r["Properties"] for r in resources if r["Type"] == "AWS::Cognito::UserPoolClient"]
 assert len(clients) == 1

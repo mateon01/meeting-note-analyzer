@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { MeetingResultResponse, Transcript as TranscriptDoc } from "@meeting-notes/shared";
 import { Transcript } from "../../components/Transcript";
+import * as exports from "../transcript-export";
 
 const rawUrl = "https://example.test/transcripts/m1/transcript.json?sig=1";
 const correctedUrl = "https://example.test/results/m1/transcript_attributed.json?sig=1";
@@ -52,6 +53,18 @@ async function render() {
 async function settle() { await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); }); }
 function button(label: string) { return [...element.querySelectorAll("button")].find((b) => b.textContent?.includes(label))!; }
 function segments() { return [...element.querySelectorAll("[data-segment-id]")].map((e) => e.getAttribute("data-segment-id")); }
+
+it("shows interview roles in the transcript and passes those labels to original-transcript downloads", async () => {
+  props = { ...props, transcriptUrl: rawUrl, originalTranscriptUrl: null, speakerRoleLabels: { S1: "면접관", S2: "후보자" } };
+  const download = vi.spyOn(exports, "downloadTranscript").mockImplementation(() => {});
+  await render();
+  expect(element.querySelector('[data-segment-id="seg-0"]')?.textContent).toContain("면접관");
+  expect(element.querySelector('[data-segment-id="seg-2"]')?.textContent).toContain("후보자");
+  expect(element.textContent).not.toContain("S1");
+  expect(element.textContent).not.toContain("S2");
+  await act(async () => button("TXT 다운로드").click());
+  expect(download.mock.calls[0]![1]).toMatchObject({ variant: "original", speakerRoleLabels: { S1: "면접관", S2: "후보자" } });
+});
 
 it("shows accepted changes, review reasons and a filter without changing the original speaker", async () => {
   await render();
@@ -169,4 +182,19 @@ it("shows a proposed name as a hint next to an unconfirmed speaker, only in the 
   expect(segment).toContain("추정: 김민수");
   await act(async () => button("원본 전사").click()); await settle();
   expect(element.textContent).not.toContain("추정: 김민수");
+});
+
+it("downloads the full selected transcript even while review filtering hides other speech", async () => {
+  const download = vi.spyOn(exports, "downloadTranscript").mockImplementation(() => {});
+  props.title = "주간 회의";
+  await render();
+  await act(async () => element.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click());
+  expect(segments()).toEqual(["seg-1"]);
+  await act(async () => button("TXT 다운로드").click());
+  expect(download.mock.calls[0]![0].segments).toHaveLength(3);
+  expect(download.mock.calls[0]![1]).toMatchObject({ title: "주간 회의", variant: "corrected", format: "txt" });
+  await act(async () => button("원본 전사").click()); await settle();
+  await act(async () => button("Markdown 다운로드").click());
+  expect(download.mock.calls[1]![0].segments[0]!.speaker).toBe("S1");
+  expect(download.mock.calls[1]![1]).toMatchObject({ variant: "original", format: "md" });
 });

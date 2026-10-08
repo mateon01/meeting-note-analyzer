@@ -20,17 +20,17 @@ const tab = (label: string) => [...element.querySelectorAll('[role="tab"]')].fin
 it("offers meeting and lecture uploads as tabs above the form, meeting first", async () => {
   await render("/upload");
   expect(tab("회의 녹음").getAttribute("aria-selected")).toBe("true");
-  expect(tab("강의 영상").getAttribute("aria-selected")).toBe("false");
+  expect(tab("강의 노트").getAttribute("aria-selected")).toBe("false");
   expect(element.textContent).toContain("mp3 파일 선택");
   expect(element.querySelector('input[aria-label="강의 영상"]')).toBeNull();
-  await act(async () => tab("강의 영상").click());
-  expect(tab("강의 영상").getAttribute("aria-selected")).toBe("true");
+  await act(async () => tab("강의 노트").click());
+  expect(tab("강의 노트").getAttribute("aria-selected")).toBe("true");
   expect(element.querySelector('input[aria-label="강의 영상"]')).not.toBeNull();
   expect(element.textContent).toContain("학습 자료 만들기");
   expect(element.textContent).not.toContain("mp3 파일 선택");
 });
 it("opens the lecture tab directly from the kind query parameter", async () => {
   await render("/upload?kind=lecture");
-  expect(tab("강의 영상").getAttribute("aria-selected")).toBe("true");
+  expect(tab("강의 노트").getAttribute("aria-selected")).toBe("true");
   expect(element.querySelector('input[aria-label="강의 영상"]')).not.toBeNull();
 });

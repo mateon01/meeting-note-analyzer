@@ -4,8 +4,12 @@ cdk.out*/
 cdk.context.json
 cdk-outputs*.json
 deploy.local.json
+deploy.local.*
 .deployment/
 web/public/config.json
+.aws/
+.ssh/
+.omc/
 *.pem
 *.key
 *.p12
@@ -22,12 +26,32 @@ __pycache__/
 .ruff_cache/
 .mypy_cache/
 *.egg-info/
+*.tsbuildinfo
+.coverage
+.coverage.*
+.hypothesis/
 .DS_Store
 *.log
 web/dev-dist/
 stt/models/
 .claude/settings.local.json
 .playwright-mcp/
+
+# Local media, transcripts, analysis results, and scratch files.
+# Public documentation and synthetic fixtures belong under docs/ and test directories.
+/uploads/
+/transcripts/
+/results/
+/lecture-uploads/
+/lecture-results/
+/interview-uploads/
+/interview-results/
+/tmp/
+/temp/
+*.tmp
+*.swp
+*.swo
+*~
 
 # graphify graph data is regenerated locally (graphify update .) and exceeds GitHub file limits
 graphify-out/

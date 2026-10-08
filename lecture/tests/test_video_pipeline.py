@@ -9,6 +9,7 @@ from lecture_study.pipeline import analyze
 from lecture_study.schemas import Audience, Overview, Papers, SlideReading, Study, VideoMatch, VideoObservation, VideoOutline
 from lecture_study.video import prepare_video
 from test_video import make_video, media_test
+from test_pipeline import FakeModel
 
 
 class Store:
@@ -40,7 +41,7 @@ class Store:
 class Model:
     def __init__(self): self.calls = []
     def check(self): pass
-    def generate(self, schema, task, data, image=None, images=None, validate=None):
+    def generate(self, schema, task, data, image=None, images=None, validate=None, **kwargs):
         self.calls.append(schema)
         if schema == SlideReading:
             value = {"title": "Gradient descent" if "Gradient" in data["text"] else "Not presented", "description": "Attached slide", "concepts": ["Gradient"]}
@@ -83,7 +84,7 @@ def test_real_video_to_visual_study_with_optional_deck_and_silent_track(tmp_path
             doc.new_page().insert_text((30, 30), "Gradient descent")
             doc.new_page().insert_text((30, 30), "Not presented")
             doc.save(deck)
-    store, model = Store(source, deck), Model()
+    store, model = Store(source, deck), FakeModel() if with_deck else Model()
     work = tmp_path / "work"; work.mkdir()
     prepared = prepare_video(store, work, lambda: None)
     store.rec.update(prepared)
@@ -93,21 +94,19 @@ def test_real_video_to_visual_study_with_optional_deck_and_silent_track(tmp_path
     store.values["transcript"] = {"durationSec": 90, "language": "en", "segments": speech}
     analyze(store, work, lambda: None, model=model, search=Search())
     document = store.values[store.prefix + "runs/run-1/document.json"]
-    assert document["videoAnalysis"]["sceneCount"] == 3
-    assert any(p["source"] == "video" for p in document["pages"])
-    assert model.calls.count(VideoObservation) == 3 and model.calls.count(VideoOutline) == 1
     if not with_deck:
+        assert document["videoAnalysis"]["sceneCount"] == 3
+        assert any(p["source"] == "video" for p in document["pages"])
+        assert model.calls.count(VideoObservation) == 3 and model.calls.count(VideoOutline) == 1
         # Three scenes become two topic pages cut along the outline; both belong to one chapter and share its papers.
         first, second = document["pages"]
         assert [p["title"] for p in (first, second)] == ["Gradient descent", "Board example"]
         assert [len(p["videoRanges"]) for p in (first, second)] == [2, 1] and first["chapter"] == second["chapter"] == "Optimization"
         assert model.calls.count(Papers) == 1 and first["research"] == second["research"]
     if with_deck:
-        first, unseen, extra = document["pages"]
-        assert first["deckPage"] == 1 and len(first["videoRanges"]) == 2
-        assert [segment["segmentId"] for segment in first["evidence"]] == ["seg-1", "seg-61"]
-        assert unseen["videoRanges"] == [] and unseen["spokenSummary"] == ""
-        assert extra["source"] == "video" and extra["visualType"] == "demo" and extra["chapter"] == "Optimization"
+        assert document["grouped"] and document["selectedPages"] == [1, 2]
+        assert all(p["source"] == "deck" and p["alignment"]["method"] == "semantic" for p in document["pages"])
+        assert model.calls.count(VideoObservation) == 0
     if silent:
         assert all(not p["evidence"] and not p["spokenSummary"] for p in document["pages"])
         assert any("음성 트랙" in warning for warning in document["warnings"])

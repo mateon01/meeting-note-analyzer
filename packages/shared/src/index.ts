@@ -7,3 +7,4 @@ export * from "./brief.js";
 export * from "./upload.js";
 export * from "./chat.js";
 export * from "./lecture.js";
+export * from "./interview.js";

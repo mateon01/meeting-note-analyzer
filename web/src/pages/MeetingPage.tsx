@@ -139,7 +139,7 @@ export function MeetingPage() {
         {tab === "followups" && doc && <FollowUpsTab doc={doc} />}
         {tab === "suggestions" && doc && <SuggestionsTab doc={doc} />}
         {tab === "mindmap" && doc?.mindmap && <MindMapView map={doc.mindmap} />}
-        {tab === "transcript" && transcriptUrl && <Transcript transcriptUrl={transcriptUrl} originalTranscriptUrl={originalTranscriptUrl} transcriptRevision={transcriptRevision} audioUrl={audioUrl} speakerLabels={speakerLabels} proposedLabels={Object.fromEntries((doc?.speakers ?? []).filter((s) => s.reviewRequired && s.proposedLabel).map((s) => [s.id, s.proposedLabel!]))} confirmedSpeakerNames={(doc?.speakers ?? []).filter((s) => s.nameConfirmedByUser).map((s) => s.id)} onRefreshUrls={async () => (await q.refetch({ throwOnError: true })).data} />}
+        {tab === "transcript" && transcriptUrl && <Transcript title={meeting.title} transcriptUrl={transcriptUrl} originalTranscriptUrl={originalTranscriptUrl} transcriptRevision={transcriptRevision} audioUrl={audioUrl} speakerLabels={speakerLabels} proposedLabels={Object.fromEntries((doc?.speakers ?? []).filter((s) => s.reviewRequired && s.proposedLabel).map((s) => [s.id, s.proposedLabel!]))} confirmedSpeakerNames={(doc?.speakers ?? []).filter((s) => s.nameConfirmedByUser).map((s) => s.id)} onRefreshUrls={async () => (await q.refetch({ throwOnError: true })).data} />}
         {tab !== "transcript" && !doc && transcriptUrl && <p className="text-sm text-ink-3">분석이 끝나면 여기에 결과가 표시됩니다. 전사 탭에서 전사 결과를 먼저 볼 수 있습니다.</p>}
       </section>
       {doc && (tab === "summary" || tab === "notes") && <MeetingBrief doc={doc}

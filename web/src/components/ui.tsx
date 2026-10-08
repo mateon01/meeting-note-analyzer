@@ -31,7 +31,7 @@ export function SectionLabel({ children, tone = "default" }: { children: ReactNo
   return <p className={`text-[11px] font-semibold uppercase tracking-[0.08em] ${color}`}>{children}</p>;
 }
 
-type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "secondary" | "ghost" | "danger"; size?: "md" | "sm"; loading?: boolean; icon?: ReactNode; full?: boolean };
+type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "secondary" | "ghost" | "danger" | "violet" | "success"; size?: "md" | "sm"; loading?: boolean; icon?: ReactNode; full?: boolean };
 export function Button({ variant = "primary", size = "md", loading, icon, full, className = "", children, disabled, ...rest }: ButtonProps) {
   const base = "tap inline-flex items-center justify-center gap-2 font-semibold rounded-xl transition-[transform,background-color,opacity] active:scale-[0.98] disabled:opacity-45 disabled:active:scale-100";
   const sizes = size === "sm" ? "h-9 px-3.5 text-[13px]" : "h-12 px-5 text-[15px]";
@@ -40,6 +40,8 @@ export function Button({ variant = "primary", size = "md", loading, icon, full, 
     secondary: "bg-surface-2 text-ink border border-line-2",
     ghost: "text-ink-2 hover:text-ink",
     danger: "bg-danger-soft text-danger border border-danger/30",
+    violet: "bg-violet/15 text-violet border border-violet/40 hover:bg-violet/25",
+    success: "bg-success-soft text-success border border-success/30 hover:bg-success/20",
   }[variant];
   return (
     <button className={`${base} ${sizes} ${variants} ${full ? "w-full" : ""} ${className}`} disabled={disabled || loading} {...rest}>

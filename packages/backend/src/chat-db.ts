@@ -1,5 +1,5 @@
 import { DeleteCommand, GetCommand, PutCommand, QueryCommand, type QueryCommandOutput } from "@aws-sdk/lib-dynamodb";
-import { chatKeys, type ChatMessageDto, type ChatSessionDto, type ChatSessionRecord } from "@meeting-notes/shared";
+import { chatKeys, type ChatMessageDto, type ChatSessionDto, type ChatSessionRecord, type CreateChatSessionRequest } from "@meeting-notes/shared";
 import { ddb } from "./db.js";
 import { env } from "./env.js";
 
@@ -8,9 +8,9 @@ const toDto = (r: ChatSessionRecord): ChatSessionDto => {
   return dto;
 };
 
-export async function createChatSession(ownerSub: string, sessionId: string, meetingId?: string): Promise<ChatSessionDto> {
+export async function createChatSession(ownerSub: string, sessionId: string, meetingId?: string, scope: CreateChatSessionRequest = {}): Promise<ChatSessionDto> {
   const now = new Date().toISOString();
-  const item: ChatSessionRecord = { ...chatKeys.session(sessionId), GSI1PK: chatKeys.userGsi(ownerSub), GSI1SK: now, sessionId, owner: ownerSub, title: "", createdAt: now, updatedAt: now, messageCount: 0, ...(meetingId ? { meetingId } : {}) } as ChatSessionRecord;
+  const item: ChatSessionRecord = { ...chatKeys.session(sessionId), GSI1PK: chatKeys.userGsi(ownerSub), GSI1SK: now, sessionId, owner: ownerSub, title: "", createdAt: now, updatedAt: now, messageCount: 0, ...(meetingId ? { meetingId } : {}), ...scope } as ChatSessionRecord;
   await ddb.send(new PutCommand({ TableName: env.tableName, Item: item, ConditionExpression: "attribute_not_exists(PK)" }));
   return toDto(item);
 }

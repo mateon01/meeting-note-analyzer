@@ -8,3 +8,4 @@ export * from "./notes-markdown.js";
 export * from "./documents.js";
 export * from "./document-lock.js";
 export * from "./lectures.js";
+export * from "./interviews.js";

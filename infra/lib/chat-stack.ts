@@ -38,6 +38,7 @@ export class ChatStack extends Stack {
   readonly knowledgeBaseId: string;
   readonly gatewayUrl: string;
   readonly chatRuntimeArn: string;
+  readonly chatRuntimeVersion: string;
 
   constructor(scope: Construct, id: string, props: ChatStackProps) {
     super(scope, id, props);
@@ -250,6 +251,9 @@ export class ChatStack extends Stack {
     });
     runtime.node.addDependency(role);
     this.chatRuntimeArn = runtime.attrAgentRuntimeArn;
+    // A literal build revision avoids exporting a changing CloudFormation value
+    // while allowing existing conversations to use the updated runtime code.
+    this.chatRuntimeVersion = image.assetHash;
     retainRuntimeLogs(this, "ChatRuntimeLogRetention", runtime.attrAgentRuntimeId);
 
     new CfnOutput(this, "KnowledgeBaseId", { value: this.knowledgeBaseId });

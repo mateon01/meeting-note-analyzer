@@ -1,5 +1,4 @@
 """Visual interpretation and slide matching grounded in actual MP4 frame times."""
-import json
 import re
 import tempfile
 from contextlib import contextmanager
@@ -12,6 +11,8 @@ from .outline import build_outline, topic_pages
 from .parallel import parallel_map
 from .prompts import STUDY_CACHE_VERSION, VIDEO_STUDY_TASK
 from .schemas import SlideReading, Study, VideoMatch, VideoObservation
+from .study import deck_context, generate_study
+from .customization import request_cache_key, request_context
 
 
 def fingerprint(path: Path):
@@ -88,26 +89,10 @@ def topic_reading(topic: dict, observations: list[dict]) -> dict:
     return {"title": topic["title"], "description": description[:2400], "concepts": concepts, "visualType": max(set(kinds), key=kinds.count)}
 
 
-def make_study(model, language, reading, evidence, visual_notes, pictures, matched=True, audience=None):
-    task = VIDEO_STUDY_TASK
-    groups, current, size = [], [], 0
-    for item in evidence:
-        length = len(json.dumps(item, ensure_ascii=False))
-        if length > 30000:
-            raise ValueError("A speech segment exceeds the study context limit")
-        if current and size + length > 30000:
-            groups.append(current); current, size = [], 0
-        current.append(item); size += length
-    groups.append(current)
-    base = {"outputLanguage": language, "audience": audience, "reading": reading, "videoMatched": matched, "visualObservations": [n[:600] for n in visual_notes]}
-    if len(groups) == 1:
-        return model.generate(Study, task, {**base, "recordedSpeech": groups[0]}, images=pictures).model_dump()
-    # Long revisits to one attached slide are summarized in bounded speech
-    # windows, then consolidated; speech is never silently cut to fit a prompt.
-    parts = [model.generate(Study, task, {**base, "recordedSpeech": group}, images=pictures).model_dump() for group in groups]
-    while len(parts) > 1:
-        parts = [model.generate(Study, task + " Consolidate these study notes without adding lecture claims.", {"outputLanguage": language, "audience": audience, "notes": parts[i:i + 4]}).model_dump() for i in range(0, len(parts), 4)]
-    return parts[0]
+def make_study(model, language, reading, evidence, visual_notes, pictures, matched=True, audience=None, source_context=None, preferences=None):
+    return generate_study(model, VIDEO_STUDY_TASK,
+        {"outputLanguage": language, "audience": audience, "reading": reading, "videoMatched": matched,
+         "visualObservations": [n[:600] for n in visual_notes], "sourceContext": source_context or {}, **(preferences or {})}, evidence, pictures)
 
 
 def analyze_video(store, workdir, check, model, search, render):
@@ -140,6 +125,7 @@ def analyze_video(store, workdir, check, model, search, render):
         return VideoObservation.model_validate(store.cached(f"scene-{i}.json", observe)).model_dump()
     observations = parallel_map(enumerate(scenes), observe_scene, check=check, on_done=lambda n: store.progress("slides", len(deck) + n, len(deck) + len(scenes)))
     audience = learner_profile(store, model, language, record, readings + observations, transcript["segments"])
+    source_context = deck_context(record, deck, readings)
     fingerprints = [fingerprint(slide["image"]) for slide in deck]
     def match_scene(item):
         i, scene = item
@@ -175,12 +161,14 @@ def analyze_video(store, workdir, check, model, search, render):
         def study_and_image():
             if deck_index is not None:
                 pictures = [deck[deck_index]["image"]]
-                study = store.cached(f"page-study-{i}.{STUDY_CACHE_VERSION}.json", lambda: make_study(model, language, reading, evidence, [observations[j]["description"] for j in selected], pictures, bool(selected), audience))
+                preferences = request_context(record, sourceType="deck", deckPage=deck[deck_index]["page"])
+                study = store.cached(request_cache_key(f"page-study-{i}.{STUDY_CACHE_VERSION}.json", record), lambda: make_study(model, language, reading, evidence, [observations[j]["description"] for j in selected], pictures, bool(selected), audience, source_context, preferences))
                 image_bytes = pictures[0].read_bytes()
             else:
                 notes = [observations[j]["description"] for j in spaced(selected, 12)]
                 with scene_first_frames(store, [scenes[j] for j in spaced(selected, 6)], workdir) as pictures:
-                    study = store.cached(f"topic-study-{i}.v1.json", lambda: make_study(model, language, reading, evidence, notes, pictures, True, audience))
+                    preferences = request_context(record, sourceType="video", videoRanges=[{"startSec": r["startSec"], "endSec": r["endSec"]} for r in ranges])
+                    study = store.cached(request_cache_key(f"topic-study-{i}.{STUDY_CACHE_VERSION}.json", record), lambda: make_study(model, language, reading, evidence, notes, pictures, True, audience, source_context, preferences))
                     # Keep the existing PNG preview/download contract.
                     import io
                     output = io.BytesIO()
@@ -194,7 +182,7 @@ def analyze_video(store, workdir, check, model, search, render):
             study["spokenSummary"] = ""
         confidence = min((matches[j].confidence for j in selected), default=0) if deck_index is not None else 1
         alignment = {"status": "matched" if selected else "unmatched", "confidence": confidence, "method": "visual_match" if deck_index is not None else "video_time", "reason": " / ".join(matches[j].reason for j in selected)[:1800] if deck_index is not None else "영상 구간과 같은 시간대의 발언"}
-        return {"page": i + 1, "title": reading["title"], "source": "deck" if deck_index is not None else "video", **({"deckPage": deck[deck_index]["page"]} if deck_index is not None else {"chapter": entry["topic"]["chapter"]}), "visualType": (observations[selected[0]]["visualType"] if selected else "slide") if deck_index is not None else reading["visualType"], "videoRanges": ranges, "slideText": deck[deck_index]["text"] if deck_index is not None else reading["description"], "imageKey": store.prefix + f"slides/{i + 1}.png", "alignment": alignment, "evidence": evidence, "outputLanguage": language, **study}
+        return {"page": i + 1, "title": reading["title"], "source": "deck" if deck_index is not None else "video", "sourceFile": source_context["fileName"] if deck_index is not None else record["assets"]["video"].get("fileName", ""), **({"deckPage": deck[deck_index]["page"]} if deck_index is not None else {"chapter": entry["topic"]["chapter"]}), "visualType": (observations[selected[0]]["visualType"] if selected else "slide") if deck_index is not None else reading["visualType"], "videoRanges": ranges, "slideText": deck[deck_index]["text"] if deck_index is not None else reading["description"], "imageKey": store.prefix + f"slides/{i + 1}.png", "alignment": alignment, "evidence": evidence, "outputLanguage": language, **study}
     pages = parallel_map(enumerate(entries), build_page, check=check, on_done=lambda n: store.progress("study", n, len(entries)))
     store.update(pageCount=len(pages))
     return finish_lecture(store, model, search, check, record, language, pages, manifest["durationSec"], {"sampleIntervalSec": manifest["sampleIntervalSec"], "sceneCount": len(scenes), "sampledFrames": manifest["sampledFrames"], "groupedScenes": manifest["groupedScenes"], "hasAudio": manifest["hasAudio"]}, audience=audience)

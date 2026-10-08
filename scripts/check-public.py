@@ -14,7 +14,8 @@ ACCOUNT = re.compile(r"(?<![\w.])[0-9]{12}(?![\w.])")
 SECRET = re.compile(r"(?:AKIA|ASIA)[A-Z0-9]{16}|gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{50,}|hf_[A-Za-z0-9]{25,}|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----")
 PERSONAL_PATH = re.compile(r"/(?:home|Users)/([A-Za-z0-9._-]+)")
 BUILT_IN_USERS = {"agent", "lecturer", "runner", "user", "example"}
-FORBIDDEN_PARTS = {".aws", ".ssh", ".deployment", "node_modules", ".venv", "graphify-out", ".claude"}
+FORBIDDEN_PARTS = {".aws", ".ssh", ".deployment", ".omc", "node_modules", ".venv", "graphify-out", ".claude"}
+PRIVATE_ROOTS = {"uploads", "transcripts", "results", "lecture-uploads", "lecture-results", "interview-uploads", "interview-results", "tmp", "temp"}
 
 
 def content_findings(text: str, dependency_lock=False) -> list[tuple[int, str]]:
@@ -39,7 +40,9 @@ def main() -> int:
     findings = []
     for name in files:
         path = ROOT / name
-        if FORBIDDEN_PARTS.intersection(Path(name).parts) or path.name == "deploy.local.json" or path.name.startswith("cdk-outputs") or path.name == "cdk.context.json" or path.name == ".env":
+        parts = Path(name).parts
+        private_env = path.name == ".env" or (path.name.startswith(".env.") and path.name != ".env.example")
+        if FORBIDDEN_PARTS.intersection(parts) or parts[0] in PRIVATE_ROOTS or path.name.startswith("deploy.local.") or path.name.startswith("cdk-outputs") or path.name == "cdk.context.json" or name == "web/public/config.json" or private_env:
             findings.append(f"{name}: private/generated file must not be tracked")
             continue
         if not path.is_file(): continue

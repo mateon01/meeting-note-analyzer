@@ -21,6 +21,7 @@ export interface WebStackProps extends StackProps {
   userPoolId: string;
   userPoolClientId: string;
   chatRuntimeArn: string;
+  chatRuntimeVersion: string;
   alarmTopic: sns.ITopic;
   /** Runtime config served at /config.json (Cognito ids etc.). */
   webConfig: Record<string, string>;
@@ -64,7 +65,7 @@ export class WebStack extends Stack {
     // Chat answers stream as server-sent events; the runtime emits a keepalive every 10s so the 60s origin read timeout never trips.
     // OAC: CloudFront signs origin requests (SigV4) for the IAM-auth Function URL; the app token travels in x-mna-token
     // because CloudFront overwrites Authorization, and POST bodies must carry x-amz-content-sha256 (client computes it).
-    const chatStream = new ChatStreamFn(this, "ChatStream", { table: props.table, userPoolId: props.userPoolId, userPoolClientId: props.userPoolClientId, chatRuntimeArn: props.chatRuntimeArn });
+    const chatStream = new ChatStreamFn(this, "ChatStream", { table: props.table, userPoolId: props.userPoolId, userPoolClientId: props.userPoolClientId, chatRuntimeArn: props.chatRuntimeArn, chatRuntimeVersion: props.chatRuntimeVersion });
     const chatOrigin = origins.FunctionUrlOrigin.withOriginAccessControl(chatStream.url, { readTimeout: Duration.seconds(60) });
     lambdaErrorsAlarm(this, "ChatRelayErrors", chatStream.fn, props.alarmTopic, "Chat streaming relay Lambda failed");
 
@@ -82,6 +83,13 @@ export class WebStack extends Stack {
         functionAssociations: [{ function: spaRewrite, eventType: cloudfront.FunctionEventType.VIEWER_REQUEST }],
       },
       additionalBehaviors: {
+        "/interview-uploads/*": {
+          origin: uploadOrigin,
+          viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.HTTPS_ONLY,
+          allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,
+          cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
+          originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
+        },
         "/lecture-uploads/*": {
           origin: uploadOrigin,
           viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.HTTPS_ONLY,

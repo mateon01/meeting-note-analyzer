@@ -19,11 +19,19 @@ from .config import GATEWAY_TOOL, GATEWAY_URL, MAX_RESULTS, REGION
 log = logging.getLogger("chat.gateway")
 
 
-def owner_filter(sub: str, meeting_id: str | None) -> dict[str, Any]:
+def owner_filter(sub: str, meeting_id: str | None, *, source_type: str = "all", lecture_id: str | None = None) -> dict[str, Any]:
     owner = {"equals": {"key": "owner", "value": sub}}
-    if meeting_id:
-        return {"andAll": [owner, {"equals": {"key": "meetingId", "value": meeting_id}}]}
-    return owner
+    filters = [owner]
+    if source_type == "lecture" or lecture_id:
+        filters.append({"equals": {"key": "kind", "value": "lecture"}})
+        if lecture_id:
+            filters.append({"equals": {"key": "lectureId", "value": lecture_id}})
+    elif meeting_id:
+        filters.append({"equals": {"key": "meetingId", "value": meeting_id}})
+    elif source_type == "meeting":
+        # Older meeting sidecars predate the kind attribute.
+        filters.append({"notEquals": {"key": "kind", "value": "lecture"}})
+    return {"andAll": filters} if len(filters) > 1 else owner
 
 
 def _parse_tool_result(body: dict[str, Any]) -> list[dict[str, Any]]:
@@ -66,13 +74,13 @@ def _signed_headers(url: str, raw: bytes) -> dict[str, str]:
     return dict(request.headers)
 
 
-def retrieve(query: str, *, sub: str, meeting_id: str | None = None, k: int | None = None) -> list[dict[str, Any]]:
+def retrieve(query: str, *, sub: str, meeting_id: str | None = None, k: int | None = None, source_type: str = "all", lecture_id: str | None = None) -> list[dict[str, Any]]:
     """Hybrid search on the user's meetings and lectures; returns raw retrievalResults from the managed KB."""
     if not GATEWAY_URL:
         raise RuntimeError("GATEWAY_URL not configured")
     args = {
         "retrievalQuery": {"text": query[:1000]},
-        "retrievalConfiguration": {"managedSearchConfiguration": {"filter": owner_filter(sub, meeting_id), "numberOfResults": min(k or MAX_RESULTS, MAX_RESULTS)}},
+        "retrievalConfiguration": {"managedSearchConfiguration": {"filter": owner_filter(sub, meeting_id, source_type=source_type, lecture_id=lecture_id), "numberOfResults": min(k or MAX_RESULTS, MAX_RESULTS)}},
     }
     raw = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": GATEWAY_TOOL, "arguments": args}}).encode()
     with httpx.Client(timeout=30) as http:

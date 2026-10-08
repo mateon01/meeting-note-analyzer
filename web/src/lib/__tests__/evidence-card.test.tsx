@@ -18,7 +18,7 @@ const base = { id: "E1", title: "선형대수학 1주차", date: "2026-09-06", m
 it("links lecture evidence to the lecture page section", async () => {
   await render({ ...base, kind: "lecture", meetingId: null, lectureId: "lec-1", page: 5 });
   expect(element.querySelector("a")?.getAttribute("href")).toBe("/lectures/lec-1?page=5");
-  expect(element.textContent).toContain("강의 5장");
+  expect(element.textContent).toContain("강의 학습 항목 5");
 });
 it("keeps meeting transcript links with the seek time", async () => {
   await render({ ...base, kind: "transcript", meetingId: "m-1", startSec: 65 });

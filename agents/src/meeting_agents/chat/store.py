@@ -42,7 +42,7 @@ def get_session(sub: str, session_id: str) -> dict | None:
     return item
 
 
-def ensure_session(sub: str, session_id: str, meeting_id: str | None) -> dict:
+def ensure_session(sub: str, session_id: str, meeting_id: str | None, lecture_id: str | None = None, source_type: str | None = None) -> dict:
     existing = get_session(sub, session_id)
     if existing:
         return existing
@@ -50,6 +50,10 @@ def ensure_session(sub: str, session_id: str, meeting_id: str | None) -> dict:
     item = {**session_key(session_id), "sessionId": session_id, "owner": sub, "title": "", "createdAt": now, "updatedAt": now, "messageCount": 0, "GSI1PK": f"USER#{sub}#CHAT", "GSI1SK": now}
     if meeting_id:
         item["meetingId"] = meeting_id
+    if lecture_id:
+        item["lectureId"] = lecture_id
+    if source_type:
+        item["sourceType"] = source_type
     table().put_item(Item=item, ConditionExpression="attribute_not_exists(PK)")
     return item
 

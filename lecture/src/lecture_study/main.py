@@ -64,7 +64,16 @@ def run(request: Request, store: Store, task_id: int):
     thread.start()
     try:
         with tempfile.TemporaryDirectory(prefix="lecture-") as tmp:
-            result = prepare_video(store, Path(tmp), check) if request.phase == "prepare" else analyze(store, Path(tmp), check)
+            if request.phase == "prepare":
+                result = prepare_video(store, Path(tmp), check)
+                if request.kind == "interview":
+                    from .interview_resume import validate_resume_file
+                    validate_resume_file(store, Path(tmp))
+            elif request.kind == "interview":
+                from .interview import analyze_interview
+                result = analyze_interview(store, check)
+            else:
+                result = analyze(store, Path(tmp), check)
             if request.phase == "prepare":
                 store.update(**result)
         check()

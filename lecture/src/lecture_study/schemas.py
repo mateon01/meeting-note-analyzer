@@ -7,6 +7,7 @@ class Strict(BaseModel):
 
 
 class Request(Strict):
+    kind: Literal["lecture", "interview"] = "lecture"
     lectureId: str = Field(pattern=r"^[0-9a-f-]{36}$")
     runId: str = Field(pattern=r"^[0-9a-f-]{36}$")
     ownerSub: str = Field(min_length=1, max_length=128)
@@ -63,7 +64,19 @@ class Assignment(Strict):
 
 
 class Alignment(Strict):
-    assignments: list[Assignment] = Field(max_length=120)
+    # A repaired proposal can split ranges at disputed boundaries.
+    assignments: list[Assignment] = Field(max_length=1000)
+    unresolvedSegmentIds: list[str] = Field(default_factory=list, max_length=1000)
+
+
+class SegmentChoice(Strict):
+    page: int | None = Field(ge=1, le=120)
+    confidence: float = Field(ge=0, le=1)
+    reason: str = Field(min_length=1, max_length=600)
+
+
+class AlignmentResolution(Strict):
+    choices: dict[str, SegmentChoice]
 
 
 class Concept(Strict):
@@ -82,6 +95,22 @@ class Flashcard(Strict):
     back: str = Field(min_length=1, max_length=1200)
 
 
+class MathSymbol(Strict):
+    symbol: str = Field(min_length=1, max_length=200)
+    meaning: str = Field(min_length=1, max_length=600)
+
+
+class SourceCheck(Strict):
+    status: Literal["consistent", "corrected", "uncertain"]
+    explanation: str = Field(min_length=1, max_length=2000)
+    correctedStatement: str = Field(default="", max_length=2000)
+
+
+class RelatedPage(Strict):
+    page: int = Field(ge=1, le=120)
+    topic: str = Field(min_length=1, max_length=300)
+
+
 class MathNote(Strict):
     kind: Literal["definition", "theorem", "lemma", "formula", "example"]
     name: str = Field(min_length=1, max_length=200)
@@ -89,6 +118,9 @@ class MathNote(Strict):
     steps: list[str] = Field(max_length=12)
     intuition: str = Field(max_length=1500)
     supplementary: bool = False
+    symbols: list[MathSymbol] = Field(default_factory=list, max_length=16)
+    assumptions: list[str] = Field(default_factory=list, max_length=8)
+    sourceCheck: SourceCheck | None = None
 
 
 class Study(Strict):
@@ -97,6 +129,7 @@ class Study(Strict):
     explanation: str = Field(min_length=1, max_length=5000)
     concepts: list[Concept] = Field(max_length=12)
     mathNotes: list[MathNote] = Field(default_factory=list, max_length=6)
+    relatedPages: list[RelatedPage] = Field(default_factory=list, max_length=8)
     reviewQuestions: list[Question] = Field(max_length=5)
     flashcards: list[Flashcard] = Field(max_length=8)
     searchQueries: list[str] = Field(max_length=2)

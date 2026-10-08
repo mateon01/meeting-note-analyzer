@@ -37,10 +37,10 @@ def run_media(command: list[str], check=lambda: None, timeout: int = 180) -> byt
             while process.poll() is None:
                 check()
                 if time.monotonic() >= deadline:
-                    raise ValueError("영상 처리 시간이 초과되었습니다. 영상을 나누어 업로드하세요.")
+                    raise ValueError("강의 파일 처리 시간이 초과되었습니다. 파일을 나누어 업로드하세요.")
                 time.sleep(0.2)
             if process.returncode:
-                raise ValueError("영상 파일을 읽지 못했습니다. MP4 파일과 코덱을 확인하세요.")
+                raise ValueError("강의 파일을 읽지 못했습니다. MP4/MP3 파일과 코덱을 확인하세요.")
             out.seek(0)
             return out.read(1024 * 1024)
         finally:
@@ -64,6 +64,17 @@ def probe_video(source: str, check=lambda: None) -> dict:
     if videos[0].get("width", 0) * videos[0].get("height", 0) > 3840 * 2160:
         raise ValueError("4K 이하 해상도의 영상을 업로드하세요.")
     return {"durationSec": duration, "hasAudio": bool(audios), "videoCodec": videos[0].get("codec_name"), "width": videos[0].get("width"), "height": videos[0].get("height")}
+
+
+def probe_audio(source: str, check=lambda: None) -> dict:
+    info = json.loads(run_media(["ffprobe", "-v", "error", *input_args(source), "-show_format", "-show_streams", "-of", "json"], check, 90))
+    audios = [s for s in info.get("streams", []) if s.get("codec_type") == "audio"]
+    if "mp3" not in info.get("format", {}).get("format_name", "").split(",") or not audios or audios[0].get("codec_name") != "mp3":
+        raise ValueError("재생 가능한 MP3 음성 파일이 필요합니다.")
+    duration = float(info.get("format", {}).get("duration", 0))
+    if not math.isfinite(duration) or not 0 < duration <= MAX_DURATION:
+        raise ValueError("강의 음성 길이는 4시간 이하여야 합니다.")
+    return {"durationSec": duration, "hasAudio": True}
 
 
 def extract_audio(source: str, destination: Path, duration: float, check=lambda: None):
@@ -166,8 +177,9 @@ def prepare_video(store, workdir: Path, check):
     if not asset:
         audio = record["assets"].get("audio")
         if not audio:
-            raise ValueError("강의 영상이 없습니다.")
-        return {"preparedAudioKey": audio["key"], "hasAudio": True}
+            raise ValueError("강의 영상 또는 음성이 없습니다.")
+        source = store.s3.generate_presigned_url("get_object", Params={"Bucket": store.bucket, "Key": audio["key"]}, ExpiresIn=300)
+        return {"preparedAudioKey": audio["key"], **probe_audio(source, check)}
     manifest_key = store.prefix + "video/manifest.json"
     existing = store.read(manifest_key)
     if existing and existing.get("sourceEtag") == asset.get("etag"):

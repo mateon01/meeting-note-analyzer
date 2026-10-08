@@ -1,4 +1,6 @@
 /** Chat (beta) contracts shared by the API, the streaming Lambda, the agent runtime (mirrored in Python) and the web app. */
+export type ChatSourceType = "meeting" | "lecture" | "all";
+export interface CreateChatSessionRequest { sourceType?: ChatSourceType; meetingId?: string; lectureId?: string }
 
 export interface ChatSessionRecord {
   PK: `CHATSESSION#${string}`;
@@ -9,6 +11,8 @@ export interface ChatSessionRecord {
   owner: string;
   title: string;
   meetingId?: string;
+  lectureId?: string;
+  sourceType?: ChatSourceType;
   createdAt: string;
   updatedAt: string;
   messageCount: number;
